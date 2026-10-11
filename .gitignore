@@ -1,0 +1,20 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+
+# Python / Node
+__pycache__/
+node_modules/
+
+# Raw Basketball-Reference CSVs (unzip nba.zip into data/raw/ to regenerate data)
+data/raw/
+data/.backup/
+backend/nba.db
+.pytest_cache/
+frontend/node_modules/
+frontend/dist/
+data/raw_games/
+data/raw_deocheng/

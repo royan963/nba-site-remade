@@ -1,0 +1,37 @@
+# Local full stack: PostgreSQL + a one-time data load + the API/dashboard.
+#     docker compose up --build      then open http://localhost:8000
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: nba
+      POSTGRES_PASSWORD: nba
+      POSTGRES_DB: nba
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nba"]
+      interval: 2s
+      retries: 30
+
+  loader:                       # (re)loads data/*.json into PostgreSQL, then exits
+    build: .
+    command: python -m backend.etl.load_db
+    environment:
+      DATABASE_URL: postgresql://nba:nba@db:5432/nba
+    depends_on:
+      db:
+        condition: service_healthy
+
+  api:
+    build: .
+    environment:
+      DATABASE_URL: postgresql://nba:nba@db:5432/nba
+    ports:
+      - "8000:8000"
+    depends_on:
+      loader:
+        condition: service_completed_successfully
+
+volumes:
+  pgdata:

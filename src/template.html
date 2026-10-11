@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>The Shape of the Game — NBA History Explorer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script>__CHARTJS__</script>
+<script>__D3__</script>
+<script>__TOPOJSON__</script>
+<style>__STYLES__</style>
+</head>
+<body>
+<div id="app">
+
+  <div class="topbar">
+    <div class="brand">
+      <span class="mark">The Shape of the <span class="accent">Game</span></span>
+      <span class="tag">NBA History Explorer</span>
+    </div>
+    <div class="season-span" id="topbar-meta">Seasons <b>1947</b> &mdash; <b>__LATEST__</b> &middot; __NUM_SEASONS__ years &middot; <span id="topbar-player-count">—</span> players</div>
+  </div>
+
+  <div class="tabs" id="main-tabs" role="tablist">
+    <button class="tab-btn active" data-view="overview" role="tab">Overview</button>
+    <button class="tab-btn" data-view="evolution" role="tab">Era Evolution</button>
+    <button class="tab-btn" data-view="leaders" role="tab">Leaderboards</button>
+    <button class="tab-btn" data-view="players" role="tab">Player Explorer</button>
+    <button class="tab-btn" data-view="teams" role="tab">Team Explorer</button>
+    <button class="tab-btn" data-view="compare" role="tab">Compare</button>
+  </div>
+
+  <!-- ============ OVERVIEW ============ -->
+  <section class="view active" id="view-overview">
+    <div class="hero">
+      <h1 class="hero-headline">Basketball didn't evolve gradually.<br>It <span class="accent">cratered</span>, then <span class="accent2">exploded</span>.</h1>
+      <p class="hero-sub">Eighty seasons of NBA box scores, distilled. Pace bottomed out in the mid-2000s after the run-and-gun 1960s. Then the three-point shot rewired the sport from the perimeter in. Scrub the timeline below to feel the league change era by era — then dig into leaderboards, player careers, and team-by-team history.</p>
+      <div class="ticker" id="hero-ticker"></div>
+    </div>
+
+    <div class="scoreboard">
+      <div class="scoreboard-top">
+        <div class="scoreboard-season">
+          <span id="sb-season">__LATEST__</span>
+          <span class="era-label" id="sb-era-label">Three-Point Era</span>
+        </div>
+        <div class="playback-row" style="margin-top:0;">
+          <button class="play-btn" id="play-btn" aria-label="Play timeline" title="Play through history">&#9654;</button>
+          <span class="playback-label" id="playback-label">Drag the slider — or hit play to watch the league evolve</span>
+        </div>
+      </div>
+      <div class="scoreboard-stats" id="sb-stats"></div>
+      <input type="range" class="season-slider" id="season-slider" min="1947" max="__LATEST__" value="__LATEST__" step="1" />
+      <div class="slider-ticks">
+        <span>1947</span><span>1960</span><span>1980</span><span>2000</span><span>__LATEST__</span>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="section-head"><span class="court-dash"></span><h2 class="section-title">League pace &amp; scoring, side by side</h2></div>
+      <p class="section-sub">Pace (possessions per 48 minutes) and points per game don't move together. The 60s were fast AND high-scoring. Today's game is slower than the 60s, but scores just as much — because of where the points come from.</p>
+      <div class="chart-wrap tall"><canvas id="overview-chart"></canvas></div>
+    </div>
+  </section>
+
+  <!-- ============ ERA EVOLUTION ============ -->
+  <section class="view" id="view-evolution">
+    <div class="section-head"><span class="court-dash"></span><h2 class="section-title">Era Evolution</h2></div>
+    <p class="section-sub">Pick a stat and watch eight decades unfold. Hover any point for the season's league average.</p>
+
+    <div class="panel">
+      <div class="chart-controls" id="evo-stat-pills"></div>
+      <div class="chart-wrap tall"><canvas id="evolution-chart"></canvas></div>
+    </div>
+
+    <div class="panel-row">
+      <div class="panel">
+        <div class="section-head"><span class="court-dash"></span><h2 class="section-title" style="font-size:16px;">The 3-Point Revolution</h2></div>
+        <p class="section-sub">Share of all field-goal attempts that are three-pointers.</p>
+        <div class="chart-wrap"><canvas id="three-pt-chart"></canvas></div>
+      </div>
+      <div class="panel">
+        <div class="section-head"><span class="court-dash"></span><h2 class="section-title" style="font-size:16px;">Offense vs. Defense Rating</h2></div>
+        <p class="section-sub">Points produced / allowed per 100 possessions.</p>
+        <div class="chart-wrap"><canvas id="ortg-chart"></canvas></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ LEADERBOARDS ============ -->
+  <section class="view" id="view-leaders">
+    <div class="section-head"><span class="court-dash"></span><h2 class="section-title">All-Time Leaderboards</h2></div>
+    <p class="section-sub">Career regular-season totals across all __NUM_SEASONS__ seasons. Click a column to sort, click a name to jump to their player page.</p>
+
+    <div class="panel">
+      <div class="lb-controls">
+        <select id="lb-stat-select"></select>
+        <input type="search" id="lb-search" placeholder="Filter by player name…" />
+        <select id="lb-era-select">
+          <option value="all">All eras</option>
+          <option value="1947-1969">1947–1969 (Early NBA)</option>
+          <option value="1970-1989">1970–1989 (ABA merger era)</option>
+          <option value="1990-2009">1990–2009 (Jordan to early 3pt)</option>
+          <option value="2010-__LATEST__">2010–__LATEST__ (Modern / 3pt era)</option>
+        </select>
+      </div>
+      <div class="table-scroll">
+        <table class="lb-table" id="lb-table">
+          <thead><tr id="lb-thead"></tr></thead>
+          <tbody id="lb-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ PLAYER EXPLORER ============ -->
+  <section class="view" id="view-players">
+    <div class="section-head"><span class="court-dash"></span><h2 class="section-title">Player Explorer</h2></div>
+    <p class="section-sub">Search any of the <span id="player-explorer-count">—</span> players who've appeared in a box score since the league's founding in 1947.</p>
+
+    <div class="player-search-wrap">
+      <input type="search" id="player-search" placeholder="Search a player… (e.g. Magic Johnson)" autocomplete="off" />
+      <div class="player-search-results" id="player-search-results"></div>
+    </div>
+
+    <div class="empty-state" id="player-empty">
+      <div class="big">No player selected</div>
+      <div>Search above, or try one of these:</div>
+      <div style="margin-top:14px; display:flex; gap:8px; justify-content:center; flex-wrap:wrap;" id="player-suggestions"></div>
+    </div>
+
+    <div class="player-card" id="player-card">
+      <div class="panel">
+        <div class="player-header">
+          <div>
+            <div class="player-name" id="pc-name"></div>
+            <div class="player-meta" id="pc-meta"></div>
+          </div>
+        </div>
+        <div class="player-stat-row" id="pc-stats"></div>
+        <div class="chart-controls" id="pc-stat-pills"></div>
+        <div class="chart-wrap"><canvas id="player-chart"></canvas></div>
+      </div>
+
+      <!-- Advanced metrics -->
+      <div class="panel" id="pc-advanced-panel" style="display:none;">
+        <div class="section-head"><span class="court-dash"></span><h2 class="section-title" style="font-size:16px;">Advanced Metrics</h2></div>
+        <p class="section-sub">Career value and peak seasons. Win Shares and PER go back to the 1950s; BPM and VORP start in 1973-74.</p>
+        <div class="player-stat-row" id="pc-advanced-stats"></div>
+      </div>
+
+      <!-- Similar players -->
+      <div class="panel" id="pc-similar-panel" style="display:none;">
+        <div class="section-head"><span class="court-dash"></span><h2 class="section-title" style="font-size:16px;">Similar Players</h2></div>
+        <p class="section-sub">Matched on career style relative to each player's league (scoring, rebounding, playmaking and defensive rates, efficiency, usage, three-point tendency, height), so players from different eras can match. Scores run 0–100; unique superstars tend to have lower top scores because nobody plays quite like them.</p>
+        <div class="similar-fingerprint" id="pc-similar-fingerprint"></div>
+        <div class="chart-controls" id="pc-similar-era">
+          <button class="pill-btn active" data-era="all">Any era</button>
+          <button class="pill-btn" data-era="same">Same era</button>
+        </div>
+        <div id="pc-similar-list"></div>
+      </div>
+
+      <!-- Awards timeline -->
+      <div class="panel" id="pc-awards-panel" style="display:none;">
+        <div class="section-head"><span class="court-dash"></span><h2 class="section-title" style="font-size:16px;">Awards &amp; Honors</h2></div>
+        <div id="pc-awards-timeline"></div>
+      </div>
+
+      <!-- Shot profile -->
+      <div class="panel" id="pc-shooting-panel" style="display:none;">
+        <div class="section-head"><span class="court-dash"></span><h2 class="section-title" style="font-size:16px;">Shot Profile</h2></div>
+        <p class="section-sub" id="pc-shooting-sub">Shot-location tracking by NBA.com begins in the 1996/97 season.</p>
+        <div class="shot-profile-controls">
+          <select id="pc-shooting-season"></select>
+          <div class="chart-controls" id="pc-shot-view-toggle">
+            <button class="pill-btn active" data-shotview="court">Court Map</button>
+            <button class="pill-btn" data-shotview="bars">Bar Chart</button>
+          </div>
+        </div>
+        <div id="pc-shot-court-view">
+          <div id="pc-court-container"></div>
+        </div>
+        <div id="pc-shot-bars-view" style="display:none;">
+          <div class="chart-wrap"><canvas id="pc-shot-bar-chart"></canvas></div>
+        </div>
+      </div>
+
+      <!-- Position split + play-by-play -->
+      <div class="panel" id="pc-pbp-panel" style="display:none;">
+        <div class="section-head"><span class="court-dash"></span><h2 class="section-title" style="font-size:16px;">On-Court Role</h2></div>
+        <p class="section-sub" id="pc-pbp-sub">Play-by-play tracking begins in the 1996/97 season.</p>
+        <div class="panel-row">
+          <div>
+            <div class="pbp-subhead">Time by position</div>
+            <div id="pc-position-bars"></div>
+          </div>
+          <div>
+            <div class="pbp-subhead">Playmaking &amp; discipline</div>
+            <div id="pc-pbp-stats"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ TEAM EXPLORER ============ -->
+  <section class="view" id="view-teams">
+    <div class="section-head"><span class="court-dash"></span><h2 class="section-title">Team Explorer</h2></div>
+    <p class="section-sub">Every franchise that's ever played in the NBA, mapped where it played. Scrub the timeline to watch the league expand and teams relocate; click any marker for its season-by-season history.</p>
+
+    <div class="map-scoreboard">
+      <div class="map-scoreboard-top">
+        <div class="map-season-display">
+          <span id="map-sb-season">__LATEST__</span>
+          <span class="era-label" id="map-sb-count-label">30 teams in the league</span>
+        </div>
+        <div class="playback-row" style="margin-top:0;">
+          <button class="play-btn" id="map-play-btn" aria-label="Play timeline" title="Play through history">&#9654;</button>
+          <div class="map-view-toggle">
+            <button class="pill-btn active" data-mapview="map" id="map-toggle-map">Map</button>
+            <button class="pill-btn" data-mapview="grid" id="map-toggle-grid">List</button>
+          </div>
+        </div>
+      </div>
+      <input type="range" class="season-slider" id="map-season-slider" min="1947" max="__LATEST__" value="__LATEST__" step="1" />
+      <div class="slider-ticks">
+        <span>1947</span><span>1960</span><span>1980</span><span>2000</span><span>__LATEST__</span>
+      </div>
+    </div>
+
+    <div class="map-legend">
+      <span class="legend-item"><span class="legend-dot dot-active"></span>Active in selected season</span>
+      <span class="legend-item"><span class="legend-dot dot-inactive"></span>Other franchises (not yet founded / relocated / folded)</span>
+      <span class="legend-item"><span class="legend-line"></span>Relocation path</span>
+      <span class="legend-item"><span class="legend-leader"></span>Offset marker (shares a city with another team)</span>
+    </div>
+
+    <div class="panel" id="map-panel">
+      <div id="us-map-container"></div>
+    </div>
+
+    <div class="team-grid" id="team-grid" style="display:none;"></div>
+
+    <div class="panel" id="team-panel" style="display:none;">
+      <div class="player-header">
+        <div>
+          <div class="player-name" id="tc-name"></div>
+          <div class="player-meta" id="tc-meta"></div>
+        </div>
+      </div>
+      <div class="chart-controls" id="tc-stat-pills"></div>
+      <div class="chart-wrap"><canvas id="team-chart"></canvas></div>
+
+      <!-- Roster by season -->
+      <div class="roster-section">
+        <div class="section-head"><span class="court-dash"></span><h2 class="section-title" style="font-size:16px;">Roster</h2></div>
+        <div class="roster-scoreboard">
+          <div class="roster-season-display">
+            <span id="roster-season-label">__LATEST__</span>
+            <span class="era-label" id="roster-team-name-label"></span>
+          </div>
+          <input type="range" class="season-slider" id="roster-season-slider" min="1947" max="__LATEST__" value="__LATEST__" step="1" />
+          <div class="slider-ticks" id="roster-slider-ticks"></div>
+        </div>
+        <div class="lb-controls">
+          <input type="search" id="roster-search" placeholder="Filter roster by name…" />
+        </div>
+        <div class="table-scroll">
+          <table class="lb-table" id="roster-table">
+            <thead><tr id="roster-thead"></tr></thead>
+            <tbody id="roster-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ COMPARE ============ -->
+  <section class="view" id="view-compare">
+    <div class="section-head"><span class="court-dash"></span><h2 class="section-title">Compare</h2></div>
+    <p class="section-sub">Stack two teams or two players against each other, across whichever window of time makes the comparison fair.</p>
+
+    <div class="tabs" style="margin-bottom:24px;">
+      <button class="tab-btn active" data-compare-mode="players">Player Comparison</button>
+      <button class="tab-btn" data-compare-mode="teams">Team Comparison</button>
+    </div>
+
+    <!-- ---- PLAYER COMPARISON ---- -->
+    <div class="compare-mode-view active" id="compare-players">
+      <div class="panel">
+        <div class="compare-picker-row">
+          <div class="player-search-wrap">
+            <input type="search" id="cmp-player-search-a" placeholder="Search player A…" autocomplete="off" />
+            <div class="player-search-results" id="cmp-player-results-a"></div>
+          </div>
+          <div class="compare-vs">VS</div>
+          <div class="player-search-wrap">
+            <input type="search" id="cmp-player-search-b" placeholder="Search player B…" autocomplete="off" />
+            <div class="player-search-results" id="cmp-player-results-b"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="empty-state" id="cmp-players-empty">
+        <div class="big">Pick two players to compare</div>
+        <div>Search above, or try a classic matchup:</div>
+        <div style="margin-top:14px; display:flex; gap:8px; justify-content:center; flex-wrap:wrap;" id="cmp-player-suggestions"></div>
+      </div>
+
+      <div id="cmp-players-result" style="display:none;">
+        <div class="panel">
+          <div class="compare-align-controls">
+            <span class="pbp-subhead" style="margin:0;">Align by</span>
+            <div class="chart-controls" id="cmp-align-toggle">
+              <button class="pill-btn active" data-align="experience">Years of Experience</button>
+              <button class="pill-btn" data-align="age">Age</button>
+              <button class="pill-btn" data-align="calendar">Calendar Season</button>
+            </div>
+          </div>
+          <div id="cmp-align-slider-wrap">
+            <input type="range" class="season-slider" id="cmp-align-slider" min="0" max="0" value="0" step="1" />
+            <div class="slider-ticks" id="cmp-align-slider-ticks"></div>
+          </div>
+          <div id="cmp-align-note" class="section-sub" style="margin-top:10px; margin-bottom:0;"></div>
+
+          <div class="compare-align-controls cmp-control-row">
+            <span class="pbp-subhead" style="margin:0;">Stat basis</span>
+            <div class="chart-controls" id="cmp-basis-toggle">
+              <button class="pill-btn active" data-basis="raw">Raw box score</button>
+              <button class="pill-btn" data-basis="per100">Per 100 possessions</button>
+              <button class="pill-btn" data-basis="index">Era-adjusted (vs. league)</button>
+            </div>
+          </div>
+          <div class="era-note" id="cmp-basis-note"></div>
+
+          <div class="compare-align-controls cmp-control-row">
+            <span class="pbp-subhead" style="margin:0;">View</span>
+            <div class="chart-controls" id="cmp-view-toggle">
+              <button class="pill-btn active" data-cmpview="snapshot">Season snapshot</button>
+              <button class="pill-btn" data-cmpview="overlay">Career overlay chart</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="cmp-snapshot-view">
+          <div class="panel-row">
+            <div class="panel compare-player-card" id="cmp-card-a"></div>
+            <div class="panel compare-player-card" id="cmp-card-b"></div>
+          </div>
+
+          <div class="panel">
+            <div class="section-head"><span class="court-dash"></span><h2 class="section-title" style="font-size:16px;">Stat-by-Stat</h2></div>
+            <div id="cmp-stat-table"></div>
+          </div>
+
+          <div class="panel" id="cmp-h2h-panel" style="display:none;">
+            <div class="section-head"><span class="court-dash"></span><h2 class="section-title" style="font-size:16px;">Head-to-Head That Season</h2></div>
+            <div id="cmp-h2h-content"></div>
+          </div>
+        </div>
+
+        <div id="cmp-overlay-view" style="display:none;">
+          <div class="panel">
+            <div class="section-head"><span class="court-dash"></span><h2 class="section-title" style="font-size:16px;">Career Overlay</h2></div>
+            <div class="chart-controls" id="cmp-overlay-pills"></div>
+            <div class="chart-wrap tall"><canvas id="cmp-overlay-chart"></canvas></div>
+            <div class="no-data-note" id="cmp-overlay-empty" style="display:none;">Neither player has this stat recorded for these seasons.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ---- TEAM COMPARISON ---- -->
+    <div class="compare-mode-view" id="compare-teams">
+      <div class="panel">
+        <div class="compare-picker-row">
+          <select id="cmp-team-select-a"></select>
+          <div class="compare-vs">VS</div>
+          <select id="cmp-team-select-b"></select>
+        </div>
+        <div class="compare-team-scope">
+          <div class="chart-controls" id="cmp-team-scope-toggle">
+            <button class="pill-btn active" data-scope="career">Full Franchise History</button>
+            <button class="pill-btn" data-scope="season">Specific Season</button>
+          </div>
+          <div id="cmp-team-season-pickers" style="display:none;">
+            <select id="cmp-team-season-a"></select>
+            <select id="cmp-team-season-b"></select>
+          </div>
+        </div>
+      </div>
+
+      <div id="cmp-teams-result">
+        <div class="panel-row">
+          <div class="panel compare-team-card" id="cmp-team-card-a"></div>
+          <div class="panel compare-team-card" id="cmp-team-card-b"></div>
+        </div>
+
+        <div class="panel">
+          <div class="section-head"><span class="court-dash"></span><h2 class="section-title" style="font-size:16px;">Stat-by-Stat</h2></div>
+          <div id="cmp-team-stat-table"></div>
+        </div>
+
+        <div class="panel">
+          <div class="section-head"><span class="court-dash"></span><h2 class="section-title" style="font-size:16px;">Accomplishments</h2></div>
+          <p class="section-sub">This dataset doesn't include a game-by-game schedule, so head-to-head results between teams aren't available — these are each team's own record, ratings, and the awards won by players on their roster.</p>
+          <div id="cmp-team-accomplishments"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="footer-note">Data: Basketball-Reference via the Kaggle “NBA Stats (1947-present)” dataset, 1947–__LATEST__ seasons · ABA seasons excluded from league averages · Built for exploration — numbers are regular season unless noted</div>
+
+</div>
+
+<script>__DATA__</script>
+<script>__APP__</script>
+</body>
+</html>

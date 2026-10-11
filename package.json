@@ -1,0 +1,14 @@
+{
+  "name": "nba-history-explorer",
+  "private": true,
+  "description": "Only needed to regenerate the map topology files (data/states-10m.json, data/canada_topo.json).",
+  "scripts": { "build:map-data": "node scripts/build_map_data.js" },
+  "devDependencies": {
+    "d3": "^7",
+    "topojson-client": "^3",
+    "topojson-server": "^3",
+    "topojson-simplify": "^3",
+    "us-atlas": "^3",
+    "world-atlas": "^2"
+  }
+}

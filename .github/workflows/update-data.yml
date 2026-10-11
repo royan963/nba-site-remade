@@ -1,0 +1,94 @@
+# Weekly (and on-demand) data refresh. Downloads the latest stats and the
+# Deo Cheng playoffs/game data from Kaggle, rebuilds everything, runs the
+# checks and smoke test, and commits only if something changed. Needs a repository secret named KAGGLE_API_TOKEN
+# (Settings -> Secrets and variables -> Actions), generated at
+# https://www.kaggle.com/settings/api.
+name: Update NBA data
+
+on:
+  workflow_dispatch:          # "Run workflow" button on the Actions tab
+    inputs:
+      games:
+        description: Also refresh playoffs and game-by-game data (downloads the large Deo Cheng dataset)
+        type: boolean
+        default: true
+      rebuild_base:
+        description: Also rebuild seasons through 2023-24 from the box-score dataset (rarely needed; it doesn't change)
+        type: boolean
+        default: false
+  schedule:
+    - cron: '0 12 * * 1'      # Mondays 12:00 UTC
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Disk space before download
+        run: df -h / | tail -1
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt kaggle playwright
+          playwright install --with-deps chromium
+
+      - name: Update data, rebuild and test
+        env:
+          TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          LEGACY_USER: ${{ secrets.KAGGLE_USERNAME }}
+          LEGACY_KEY: ${{ secrets.KAGGLE_KEY }}
+          DEOCHENG_DATASET: ${{ vars.DEOCHENG_DATASET }}   # optional repository variables, if a dataset is renamed
+          GONZALO_DATASET: ${{ vars.GONZALO_DATASET }}
+        run: |
+          # Accepts a new-style API token, a pasted kaggle.json, or legacy
+          # KAGGLE_USERNAME + KAGGLE_KEY secrets.
+          TOKEN="$(printf '%s' "$TOKEN" | tr -d '[:space:]')"
+          if printf '%s' "$TOKEN" | grep -q '"key"'; then
+            export KAGGLE_USERNAME="$(python -c 'import json,os; print(json.loads(os.environ["TOKEN"])["username"])')"
+            export KAGGLE_KEY="$(python -c 'import json,os; print(json.loads(os.environ["TOKEN"])["key"])')"
+            echo "KAGGLE_API_TOKEN contains a kaggle.json file; using its username and key."
+          elif [ -n "$TOKEN" ]; then
+            export KAGGLE_API_TOKEN="$TOKEN"
+            echo "Using the KAGGLE_API_TOKEN secret (${#TOKEN} characters)."
+          elif [ -n "$LEGACY_USER" ] && [ -n "$LEGACY_KEY" ]; then
+            export KAGGLE_USERNAME="$LEGACY_USER" KAGGLE_KEY="$LEGACY_KEY"
+            echo "Using the KAGGLE_USERNAME / KAGGLE_KEY secrets."
+          else
+            echo "::error::No Kaggle secret found. Add a repository secret named KAGGLE_API_TOKEN (Settings > Secrets and variables > Actions > Repository secrets)."
+            exit 1
+          fi
+          ARGS=""
+          if [ "${{ inputs.games }}" = "false" ]; then ARGS="--no-games"; fi
+          if [ "${{ inputs.rebuild_base }}" = "true" ]; then ARGS="$ARGS --rebuild-base"; fi
+          python scripts/update_season.py $ARGS
+
+      - name: Commit changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git add data/*.json data/games index.html
+          if git diff --cached --quiet; then
+            echo "No new data."
+          else
+            git commit -m "Update NBA data ($(date -u +%Y-%m-%d))"
+            git push
+          fi
+
+      # Optional, and usually unnecessary: the deployed server reloads the stats
+      # itself after each deploy with new data. Add a DATABASE_URL repository
+      # secret only if your API isn't redeployed when this repo changes.
+      - name: Refresh API database
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then echo "No DATABASE_URL secret; skipping."; exit 0; fi
+          pip install -r backend/requirements.txt
+          python -m backend.etl.load_db

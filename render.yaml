@@ -1,0 +1,29 @@
+# Render Blueprint: deploys the API + React app as one web service, built
+# from the Dockerfile. In the Render dashboard: New -> Blueprint -> this repo.
+#
+# The stats need no database: the image builds its own SQLite database from
+# data/*.json, and every push to main (including the weekly data update)
+# rebuilds the image with fresh data.
+#
+# User accounts DO need one: the free plan resets the container's disk on
+# every deploy and sleep, which would erase them. Before letting people sign
+# up, add a DATABASE_URL environment variable (a PostgreSQL connection
+# string, e.g. from Neon) in the Render dashboard. The server loads the stats
+# into it on first start and after every deploy with new data.
+services:
+  - type: web
+    name: nba-history
+    runtime: docker
+    plan: free                      # spins down after 15 idle minutes; ~1 min to wake
+    healthCheckPath: /api/health
+    autoDeployTrigger: commit       # redeploy on every push to the default branch
+    buildFilter:
+      ignoredPaths:                 # files not in the image don't trigger a rebuild
+        - README.md
+        - LICENSE
+        - index.html                # static GitHub Pages build
+        - build.py
+        - src/**
+        - scripts/**
+        - tests/**
+        - .github/**

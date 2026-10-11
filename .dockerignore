@@ -1,0 +1,14 @@
+.git
+.github
+**/node_modules
+**/__pycache__
+.pytest_cache
+data/raw
+data/.backup
+backend/nba.db
+frontend/dist
+web
+index.html
+src
+data/raw_games
+data/raw_deocheng
