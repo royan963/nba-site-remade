@@ -1,8 +1,17 @@
 # The Shape of the Game — NBA History Explorer
 
+[![Tests](https://github.com/royan963/nba-site-remade/actions/workflows/tests.yml/badge.svg)](https://github.com/royan963/nba-site-remade/actions/workflows/tests.yml)
+
 An interactive dashboard exploring 80 seasons of NBA history (1947–2026): league-wide trends, player and team stats, a map of franchise locations and relocations, and side-by-side comparisons.
 
-**Live site:** https://royan963.github.io/Nba_History/
+This repository, `nba-site-remade`, is the remade version of [Nba_History](https://github.com/royan963/Nba_History).
+
+**Live site:** https://royan963.github.io/Nba_History/ (the static build, served from the original repo). To serve it from this repo instead, turn on GitHub Pages under **Settings → Pages** (branch `main`, folder `/`); it will appear at https://royan963.github.io/nba-site-remade/.
+
+```bash
+git clone https://github.com/royan963/nba-site-remade.git
+cd nba-site-remade
+```
 
 It comes in two versions built from the same data:
 
@@ -143,7 +152,7 @@ Accounts are built into the API, so there's no outside auth service. Passwords a
 
 The same `Dockerfile` runs on any Docker host (Railway, Fly.io, a VPS); the container listens on `$PORT` (default 8000).
 
-To host the React app separately (for example on GitHub Pages) against a deployed API, build it with `VITE_BASE=/Nba_History/ VITE_API_BASE=https://your-api.example.com npm run build`, then copy `dist/index.html` to `dist/404.html` so deep links work, and publish `dist/`. Set `CORS_ORIGINS` on the API to your site's URL (defaults to `*`).
+To host the React app separately (for example on GitHub Pages) against a deployed API, build it with `VITE_BASE=/nba-site-remade/ VITE_API_BASE=https://your-api.example.com npm run build`, then copy `dist/index.html` to `dist/404.html` so deep links work, and publish `dist/`. Set `CORS_ORIGINS` on the API to your site's URL (defaults to `*`).
 
 ## Project structure
 
@@ -272,7 +281,7 @@ The models are trained offline (`scripts/train_*.py`, scikit-learn) and only the
 If you publish the API openly, check the license terms on the [Kaggle dataset page](https://www.kaggle.com/datasets/sumitrodatta/nba-aba-baa-stats) and credit Basketball-Reference.
 
 
-Stats come from Basketball-Reference (regular season, 1947–2026). ABA seasons are excluded from league averages. Coverage varies by stat: minutes from 1951-52, steals/blocks, BPM, VORP and per-100 stats from 1973-74, usage from 1977-78, shot-zone and play-by-play tracking from 1996-97. Era-adjusted indexes estimate league minutes as 240 per team-game. Similarity scores use players with 3,000+ tracked career minutes. The dataset has no game-by-game schedule, so literal head-to-head results aren't available. Team colors are used instead of logos (logos are trademarked).
+Stats come from Basketball-Reference (regular season, 1947–2026). ABA seasons are excluded from league averages. Coverage varies by stat: minutes from 1951-52, steals/blocks, BPM, VORP and per-100 stats from 1973-74, usage from 1977-78, shot-zone and play-by-play tracking from 1996-97. Era-adjusted indexes estimate league minutes as 240 per team-game. Similarity scores use players with 3,000+ tracked career minutes. Head-to-head results come from the game-by-game data described above. Team colors are used instead of logos (logos are trademarked).
 
 ## Tech
 
