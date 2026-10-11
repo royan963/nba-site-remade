@@ -18,6 +18,7 @@ Missing data counts as league average and is listed in `notes`.
 """
 import bisect
 import math
+import threading
 from statistics import fmean, pstdev
 
 from sqlalchemy import select
@@ -85,15 +86,20 @@ class Pool:
 
 
 _cache: dict = {}
+_cache_lock = threading.Lock()
 
 
 def get_pool(conn) -> Pool:
     """Built once per data load (keyed on the load time in the meta table)."""
     loaded_at = conn.execute(select(s.meta.c.value).where(s.meta.c.key == 'loaded_at')).scalar()
     if _cache.get('key') != loaded_at:
-        pool = build_pool(conn)
-        calibrate(pool)
-        _cache.update(key=loaded_at, pool=pool)
+        # The lineup builder fires several requests at once; build the pool once
+        # and let the others wait for it instead of each building their own.
+        with _cache_lock:
+            if _cache.get('key') != loaded_at:
+                pool = build_pool(conn)
+                calibrate(pool)
+                _cache.update(key=loaded_at, pool=pool)
     return _cache['pool']
 
 

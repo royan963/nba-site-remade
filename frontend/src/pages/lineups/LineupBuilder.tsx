@@ -135,7 +135,7 @@ function Builder({ existing }: { existing?: Lineup }) {
 
         <Panel className="lineup-score-panel">
           {scoreError && <ErrorNote error={new Error(scoreError)} />}
-          {score ? <LineupScoreView score={score} /> : picks.length ? <Loading text="Scoring\u2026" /> : (
+          {score ? <LineupScoreView score={score} /> : picks.length ? <Loading text={'Scoring\u2026'} /> : (
             <div className="empty-state" style={{ padding: '40px 10px' }}>
               <div className="big">Add a player to start</div>
               <div>Search on the left, or pick a preset.</div>

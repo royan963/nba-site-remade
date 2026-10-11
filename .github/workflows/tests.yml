@@ -75,7 +75,7 @@ jobs:
       - name: Start the API with the built site
         run: |
           python -m backend.etl.load_db
-          nohup uvicorn backend.app.main:app --port 8000 > server.log 2>&1 &
+          PYTHONUNBUFFERED=1 nohup uvicorn backend.app.main:app --port 8000 > server.log 2>&1 &
           for i in $(seq 1 30); do curl -sf localhost:8000/api/health && break; sleep 1; done
       - name: Browser test
         run: python tests/e2e_test.py http://localhost:8000
