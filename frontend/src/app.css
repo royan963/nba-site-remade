@@ -224,3 +224,7 @@ button.mvp-miss { background: none; border: 0; border-bottom: 1px solid var(--li
 .rebuilt-mark { margin-left: 3px; color: var(--amber); font-weight: 700; }
 .h2h-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-bottom: 14px; }
 .h2h-table td:first-child { font-weight: 600; }
+
+/* player page section tabs: stay in reach while scrolling a long section; scroll sideways on phones */
+.player-tabs { position: sticky; top: 0; z-index: 5; margin: 18px 0 18px; padding: 10px 0; background: var(--court-black); }
+@media (max-width: 720px) { .player-tabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; } .player-tabs .tab-btn { flex: 0 0 auto; padding: 9px 12px; } }

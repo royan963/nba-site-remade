@@ -27,6 +27,10 @@ def open_page(page, path):
     page.wait_for_timeout(300)
 
 
+def open_tab(page, key):
+    page.click(f'#pc-tabs [data-tab="{key}"]'); page.wait_for_load_state('networkidle'); page.wait_for_timeout(400)
+
+
 def path_of(page):
     return page.url[len(BASE):]
 
@@ -65,17 +69,28 @@ with sync_playwright() as p:
     check(path_of(page) == '/players/jokicni01', 'search navigates to /players/<id>')
     check('Jokić' in page.locator('#pc-name').inner_text(), 'player header renders')
     page.wait_for_selector('#pc-advanced-panel', timeout=15000)
-    for sel in ['#pc-advanced-panel', '#pc-similar-panel', '#pc-awards-panel', '#pc-shooting-panel', '#pc-pbp-panel']:
-        check(page.locator(sel).is_visible(), f'{sel} visible')
+    check(page.locator('#pc-tabs .tab-btn').count() >= 7 and page.locator('#pc-tabs .tab-btn.active').inner_text().lower() == 'stats',
+          'player page opens on the Stats tab')
+    check(page.locator('#pc-similar-panel').count() == 0 and page.locator('#pc-awards-panel').count() == 0, 'other sections stay on their tabs')
+    for key, sels in (('awards', ['#pc-awards-panel']), ('shooting', ['#pc-shooting-panel', '#pc-pbp-panel']), ('style', ['#pc-similar-panel'])):
+        open_tab(page, key)
+        page.wait_for_selector(sels[0], timeout=15000)
+        for sel in sels:
+            check(page.locator(sel).is_visible(), f'{sel} visible on the {key} tab')
+        if key == 'shooting':
+            check(page.locator('.court-zone').count() == 7, 'shot court has 7 zones')
+    check('tab=style' in page.url, 'the tab is in the URL')
     check(page.locator('.similar-row').count() >= 5, 'similar players listed')
-    check(page.locator('.court-zone').count() == 7, 'shot court has 7 zones')
     page.locator('.similar-compare').first.click(); page.wait_for_load_state('networkidle'); page.wait_for_timeout(500)
     check(re.match(r'^/compare/players/jokicni01/\w+', path_of(page)) is not None, 'Compare button opens a comparison link')
     page.go_back(); page.wait_for_load_state('networkidle'); page.wait_for_timeout(400)
-    check(path_of(page).startswith('/players/jokicni01'), 'browser Back returns to the player')
+    check(path_of(page).startswith('/players/jokicni01') and page.locator('#pc-similar-panel').count() == 1,
+          'browser Back returns to the player, on the same tab')
 
-    open_page(page, '/players/curryst01?stat=ts_pct&shotView=bars&shot=2016')
+    open_page(page, '/players/curryst01?stat=ts_pct')
     check(page.locator('#pc-stat-pills .pill-btn.active').inner_text() == 'TS%', 'deep link selects the chart stat')
+    open_page(page, '/players/curryst01?shotView=bars&shot=2016')          # an older link: opens the Shooting tab by itself
+    page.wait_for_selector('#pc-shooting-season', timeout=15000)
     check(page.locator('[data-testid="shot-bars"]').count() == 1, 'deep link opens the shot bar chart')
     check(page.locator('#pc-shooting-season').input_value() == '2016', 'deep link selects the shot season')
     open_page(page, '/players/nobody00')
@@ -138,7 +153,8 @@ with sync_playwright() as p:
     check(page.locator('[data-testid="archetype-chart"]').count() == 1, 'role trend chart')
     page.locator('.archetype-card[data-role="rim-protector"] .archetype-more').click(); page.wait_for_timeout(800)
     check('role=rim-protector' in page.url and page.locator('#role-players tbody tr').count() > 10, 'open a role (URL + player list)')
-    open_page(page, '/players/lopezbr01')
+    open_page(page, '/players/lopezbr01?tab=style')
+    page.wait_for_selector('#pc-style-strip', timeout=15000)
     check('Stretch big' in page.locator('#pc-style-strip').inner_text(), 'player page shows playing style by season')
     mix = page.locator('#pc-style-mix').inner_text()
     check('Stretch big' in mix and 'Scoring big' in mix, 'player page shows a mix of playing styles')
@@ -147,12 +163,13 @@ with sync_playwright() as p:
     open_page(page, '/models/projections')
     check(page.locator('#projection-accuracy tbody tr').count() == 3, 'projection accuracy table (3 horizons)')
     check(page.locator('#proj-risers tbody tr').count() >= 5, 'projected risers list')
-    open_page(page, '/players/wembavi01')
+    open_page(page, '/players/wembavi01?tab=projection')
     check(page.locator('#pc-projection-table tbody tr').count() == 3, 'player page shows a 3-season projection')
+    open_tab(page, 'stats')
     labels = page.evaluate("document.querySelector('[data-testid=player-chart]').chart.data.labels")
     check(labels[-1] == labels[-4] + 3, 'career chart extends three seasons into the projection')
     open_page(page, '/players/jordami01')
-    check(page.locator('#pc-projection-panel').count() == 0, 'retired players have no projection')
+    check(page.locator('#pc-tabs [data-tab="projection"]').count() == 0, 'retired players have no projection tab')
 
     print('Search')
     open_page(page, '/')
@@ -169,12 +186,14 @@ with sync_playwright() as p:
     print('Playoffs')
     open_page(page, '/players/jordami01')
     check('6\u00d7 NBA champion' in page.locator('#pc-titles').inner_text() and '1998' in page.locator('#pc-titles').inner_text(), 'player header shows championships')
+    open_tab(page, 'playoffs')
     check(page.locator('#pc-playoffs-table tbody tr').count() >= 14 and 'Champion' in page.locator('#pc-playoffs-table').inner_text(), 'playoff stats table with results')
-    open_page(page, '/players/gilgesh01')
+    open_page(page, '/players/gilgesh01?tab=playoffs')
     page.wait_for_selector('#pc-playoffs-table', timeout=15000)
     seasons = [r.split('\t')[0].strip('* ') for r in page.locator('#pc-playoffs-table tbody tr').all_inner_texts()]
     check('2025' in seasons and '2026' in seasons and page.locator('#pc-playoffs-sources').count() == 1,
           'newest playoff seasons listed, with where their stats come from')
+    open_tab(page, 'stats')
     page.click('#pc-season-type >> text=Playoffs'); page.wait_for_timeout(600)
     check('type=playoffs' in page.url and page.evaluate("document.querySelector('[data-testid=player-chart]').chart.data.datasets[0].label").endswith('(playoffs)'), 'career chart switches to playoffs')
     open_page(page, '/teams/boston-celtics')
@@ -209,19 +228,12 @@ with sync_playwright() as p:
     check('playoffs: 28 games' in page.locator('#cmp-h2h-panel').inner_text().lower(), 'player head-to-head: LeBron vs. Curry, 28 playoff games')
     check('game-by-game schedule' not in page.content(), 'the old "no game-by-game data" notes are gone')
     open_page(page, '/players/jordami01')
-    for _ in range(40):                       # scroll down gradually, like a reader, until the game log loads
-        if page.locator('#pc-gamelog-panel').count():
-            break
-        page.mouse.wheel(0, 500); page.wait_for_timeout(150)
+    open_tab(page, 'games')
     page.wait_for_selector('#pc-gamelog-panel', timeout=15000)
-    check(page.locator('#pc-gamelog-panel').count() == 1, 'game log appears when scrolled to')
+    check(page.locator('#pc-gamelog-panel').count() == 1 and 'tab=games' in page.url, 'game log tab')
 
     print('Salaries')
-    open_page(page, '/players/gilgesh01')
-    for _ in range(60):                       # the salary panel loads when scrolled to
-        if page.locator('#pc-salary-stats').count():
-            break
-        page.mouse.wheel(0, 500); page.wait_for_timeout(150)
+    open_page(page, '/players/gilgesh01?tab=contract')
     page.wait_for_selector('#pc-salary-stats', timeout=15000)
     check('career earnings' in page.locator('#pc-salary-stats').inner_text().lower(), 'player salary summary')
     check('2030-31' in page.locator('#pc-contract-table').inner_text() and 'PO' in page.locator('#pc-contract-table').inner_text(),

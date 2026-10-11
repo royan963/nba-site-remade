@@ -2,7 +2,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useApi } from '../../api/hooks';
 import type { PlayerDetail, PlayerSeason } from '../../api/types';
 import { PlayerSearch } from '../../components/PlayerSearch';
-import { ErrorNote, HofBadge, Loading, Panel, SectionHead, WhenVisible } from '../../components/ui';
+import { ErrorNote, HofBadge, Loading, NoData, Panel, SectionHead } from '../../components/ui';
 import { fmtInt, fmtNum, height } from '../../lib/format';
 import { FavoriteButton } from '../../components/account';
 import { Link } from 'react-router-dom';
@@ -48,8 +48,29 @@ export default function PlayerPage() {
   );
 }
 
+const TABS = [
+  { key: 'stats', label: 'Stats' }, { key: 'playoffs', label: 'Playoffs' }, { key: 'games', label: 'Game log' },
+  { key: 'awards', label: 'Awards' }, { key: 'shooting', label: 'Shooting' }, { key: 'style', label: 'Style & comps' },
+  { key: 'projection', label: 'Projection' }, { key: 'contract', label: 'Contract' },
+] as const;
+type Tab = typeof TABS[number]['key'];
+
+/** The tab in the URL; older links that point into a section (?gl=, ?shot=) open that section's tab. */
+function useTab(): [Tab, (t: Tab) => void] {
+  const [params, setParams] = useSearchParams();
+  const raw = params.get('tab');
+  const implied: Tab = ['gl', 'glt', 'hit'].some(k => params.has(k)) ? 'games' : ['shot', 'shotView'].some(k => params.has(k)) ? 'shooting' : 'stats';
+  const tab = (TABS.some(t => t.key === raw) ? raw : implied) as Tab;
+  const set = (t: Tab) => {
+    const next = new URLSearchParams(params);
+    if (t === 'stats') next.delete('tab'); else next.set('tab', t);
+    setParams(next, { replace: true });
+  };
+  return [tab, set];
+}
+
 function PlayerCard({ player }: { player: PlayerDetail }) {
-  const [params] = useSearchParams();
+  const [tab, setTab] = useTab();
   const { data: seasons } = useApi<PlayerSeason[]>(`/players/${player.player_id}/seasons`);
   const { data: projection } = useApi<PlayerProjection>(`/players/${player.player_id}/projection`);
   const { data: playoffs } = useApi<PlayerPlayoffs>(`/players/${player.player_id}/playoffs`);
@@ -86,21 +107,37 @@ function PlayerCard({ player }: { player: PlayerDetail }) {
         <div className="player-stat-row" id="pc-stats">
           {stats.map(([l, v]) => <div className="ps-cell" key={l}><div className="v">{v}</div><div className="l">{l}</div></div>)}
         </div>
-        {seasons ? <CareerChart seasons={seasons} projection={projection} playoffs={playoffs} /> : <Loading />}
       </Panel>
-      {seasons && <AdvancedPanel player={player} seasons={seasons} />}
-      {playoffs && <PlayoffPanel playoffs={playoffs} />}
-      {seasons && <WhenVisible eager={['hit', 'gl', 'glt'].some(k => params.has(k))}>
-        <CareerHighsPanel playerId={player.player_id} />
-        <GameLogPanel playerId={player.player_id} />
-      </WhenVisible>}
-      {projection && <ProjectionPanel projection={projection} />}
-      <WhenVisible><SalaryPanel playerId={player.player_id} /></WhenVisible>
-      <StylePanel playerId={player.player_id} />
-      <SimilarPanel playerId={player.player_id} />
-      <AwardsTimeline playerId={player.player_id} />
-      <ShotProfile playerId={player.player_id} />
-      <RolePanel playerId={player.player_id} />
+      <nav className="tabs player-tabs" id="pc-tabs" role="tablist" aria-label="Player sections">
+        {TABS.filter(t => t.key !== 'projection' || projection?.projected).map(t => (
+          <button key={t.key} type="button" role="tab" aria-selected={tab === t.key} data-tab={t.key}
+                  className={`tab-btn ${tab === t.key ? 'active' : ''}`} onClick={() => setTab(t.key)}>{t.label}</button>
+        ))}
+      </nav>
+      <div role="tabpanel" id={`pc-tab-${tab}`}>
+        {tab === 'stats' && (<>
+          <Panel>{seasons ? <CareerChart seasons={seasons} projection={projection} playoffs={playoffs} /> : <Loading />}</Panel>
+          {seasons && <AdvancedPanel player={player} seasons={seasons} />}
+        </>)}
+        {tab === 'playoffs' && (playoffs
+          ? (playoffs.seasons.length ? <PlayoffPanel playoffs={playoffs} /> : <Panel><NoData>{player.player} never played in the playoffs.</NoData></Panel>)
+          : <Loading />)}
+        {tab === 'games' && (<>
+          <CareerHighsPanel playerId={player.player_id} />
+          <GameLogPanel playerId={player.player_id} />
+        </>)}
+        {tab === 'awards' && <AwardsTimeline playerId={player.player_id} />}
+        {tab === 'shooting' && (<>
+          <ShotProfile playerId={player.player_id} />
+          <RolePanel playerId={player.player_id} />
+        </>)}
+        {tab === 'style' && (<>
+          <StylePanel playerId={player.player_id} />
+          <SimilarPanel playerId={player.player_id} />
+        </>)}
+        {tab === 'projection' && (projection ? <ProjectionPanel projection={projection} /> : <Loading />)}
+        {tab === 'contract' && <SalaryPanel playerId={player.player_id} />}
+      </div>
     </div>
   );
 }
