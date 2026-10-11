@@ -358,3 +358,35 @@ def test_similar_players_respect_style_changes(client):
 def test_old_era_matches_are_not_inflated(client):
     # Bill Russell's stats lack blocks/steals/usage; missing stats now count as a partial mismatch
     assert get(client, '/api/v1/players/russebi01/similar')['matches'][0]['score'] < 90
+
+
+# ---- salaries and contracts ------------------------------------------------------------
+def test_player_salaries(client):
+    r = get(client, '/api/v1/players/curryst01/salaries')
+    by = {s['season']: s for s in r['seasons']}
+    assert by[2010]['total'] < 3_000_000 and by[2026]['total'] == 59_606_817 and by[2026]['rank'] == 1   # rookie deal; top paid in 2025-26
+    assert r['career_earnings'] == sum(s['total'] for s in r['seasons']) and r['contract']['as_of']
+    gsw = next(c for c in r['contract']['teams'] if c['team'] == 'GSW')
+    assert [x['season'] for x in gsw['seasons']] == [2026, 2027]
+
+
+def test_player_salaries_two_teams(client):
+    # waived by Milwaukee and stretched, then signed by Portland: both teams pay him in 2025-26
+    s26 = next(s for s in get(client, '/api/v1/players/lillada01/salaries')['seasons'] if s['season'] == 2026)
+    assert {t['team'] for t in s26['teams']} == {'MIL', 'POR'} and s26['total'] == sum(t['salary'] for t in s26['teams'])
+
+
+def test_contract_options(client):
+    c = get(client, '/api/v1/players/gilgesh01/salaries')['contract']['teams'][0]
+    last = c['seasons'][-1]
+    assert c['team'] == 'OKC' and last['season'] == 2031 and last['option'] == 'player_option' and last['salary'] > 70_000_000
+
+
+def test_team_salaries(client):
+    t = get(client, '/api/v1/teams/Oklahoma City Thunder/salaries')
+    now = next(p for p in t['payroll'] if p['season'] == t['season'])
+    assert now['total'] == sum(x['salary'] for c in t['sheet'] for x in c['seasons'] if x['season'] == t['season'])   # sheet adds up
+    assert t['rules']['salary_cap'] < t['rules']['luxury_tax'] < t['rules']['second_apron']
+    assert any(p['kind'] == 'committed' and p['season'] > t['season'] for p in t['payroll'])
+    assert min(p['season'] for p in t['payroll']) == 1997 and t['sheet'][0]['player'] == 'Shai Gilgeous-Alexander'
+    get(client, '/api/v1/players/nobody99/salaries', status=404)

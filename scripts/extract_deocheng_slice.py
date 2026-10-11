@@ -7,7 +7,7 @@ streams the zip and keeps only what the playoffs and game-log work uses:
     other dataset also covers, so the two can be checked against each other; 2025
     and 2026 are the new seasons)
   - player_playoffs_series: 2024 onward
-  - honors, awards, All-Star, EPM, salaries, game highs, team tables: whole (small)
+  - honors, awards, All-Star, EPM, salaries, contracts, game highs, team tables: whole (small)
 It writes deocheng_slice.zip next to this script (expect tens of MB).
 
 Easiest: put this file on your Desktop, double-click it, paste the path to
@@ -34,6 +34,9 @@ TABLES = {
     'public.all_star_selections.csv': None,
     'public.player_epm.csv': None,
     'public.player_salaries_historical.csv': None,
+    'public.player_contracts.csv': None,
+    'public.team_payroll.csv': None,
+    'public.league_salary_rules.csv': None,
     'public.player_game_highs.csv': None,
     'public.dim_franchise.csv': None,
     'public.dim_teams.csv': None,

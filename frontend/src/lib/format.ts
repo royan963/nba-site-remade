@@ -5,6 +5,9 @@ export const fmtNum = (v: number | null | undefined, d = 1) => (ok(v) ? v.toFixe
 export const fmtInt = (v: number | null | undefined) => (ok(v) ? Math.round(v).toLocaleString('en-US') : DASH);
 /** fraction (0.393) -> "39.3%" */
 export const fmtPct = (v: number | null | undefined, d = 1) => (ok(v) ? (v * 100).toFixed(d) + '%' : DASH);
+/** $38.3M, $950K */
+export const fmtMoney = (v: number | null | undefined) =>
+  (ok(v) ? (Math.abs(v) >= 1e6 ? `$${(v / 1e6).toFixed(1)}M` : `$${Math.round(v / 1e3)}K`) : DASH);
 export const fmtSigned = (v: number | null | undefined, d = 1) => (ok(v) ? (v > 0 ? '+' : '') + v.toFixed(d) : DASH);
 
 export type StatFormat = 'num' | 'pct' | 'int' | 'idx' | 'num3' | 'signed';

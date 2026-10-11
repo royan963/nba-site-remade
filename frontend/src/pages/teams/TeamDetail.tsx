@@ -10,6 +10,7 @@ import { DASH, fmtNum } from '../../lib/format';
 import { oneOf, useQueryParam } from '../../lib/useQuery';
 import { nameChain, type Franchise } from './geo';
 import { TeamPlayoffs } from './TeamPlayoffs';
+import { TeamSalaries } from './TeamSalaries';
 import { FavoriteButton } from '../../components/account';
 
 const TEAM_STATS = [
@@ -66,6 +67,7 @@ export function TeamDetail({ franchise }: { franchise: Franchise }) {
       <ChartCanvas config={config} testId="team-chart" />
       <TeamPlayoffs franchise={franchise} />
       <Roster franchise={franchise} />
+      <TeamSalaries franchise={franchise} />
     </Panel>
   );
 }

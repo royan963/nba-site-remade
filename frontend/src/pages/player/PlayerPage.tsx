@@ -13,6 +13,7 @@ import { PlayoffPanel } from './PlayoffPanel';
 import { CareerHighsPanel, GameLogPanel } from './GameLog';
 import type { PlayerPlayoffs } from '../../api/types';
 import { ProjectionPanel } from './ProjectionPanel';
+import { SalaryPanel } from './SalaryPanel';
 import type { PlayerProjection } from '../../api/types';
 
 const SUGGESTED = [
@@ -94,6 +95,7 @@ function PlayerCard({ player }: { player: PlayerDetail }) {
         <GameLogPanel playerId={player.player_id} />
       </WhenVisible>}
       {projection && <ProjectionPanel projection={projection} />}
+      <WhenVisible><SalaryPanel playerId={player.player_id} /></WhenVisible>
       <StylePanel playerId={player.player_id} />
       <SimilarPanel playerId={player.player_id} />
       <AwardsTimeline playerId={player.player_id} />

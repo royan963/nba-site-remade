@@ -20,7 +20,7 @@ from sqlalchemy import inspect, text
 
 from . import accounts_schema
 from .db import engine, is_sqlite
-from .routers import auth, awards, compare, games, league, lineups, me, players, playoffs, search, teams
+from .routers import auth, awards, compare, games, league, lineups, me, players, playoffs, salaries, search, teams
 from .security import check_request_origin
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -48,7 +48,7 @@ async def block_cross_site_writes(request: Request, call_next):
     return await call_next(request)
 
 
-for r in (players.router, teams.router, league.router, compare.router, awards.router, search.router, playoffs.router, games.router, auth.router, me.router, lineups.router):
+for r in (players.router, teams.router, league.router, compare.router, awards.router, search.router, playoffs.router, games.router, salaries.router, auth.router, me.router, lineups.router):
     app.include_router(r, prefix='/api/v1')
 
 

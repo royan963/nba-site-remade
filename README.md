@@ -38,6 +38,7 @@ It comes in two versions built from the same data:
 - **Leaderboards** — sortable career leaders (including Win Shares, VORP and All-Star selections), filterable by era.
 - **Player Explorer** — draft info, career trajectory charts (box score and advanced: PER, TS%, usage, Win Shares, BPM, VORP), an advanced-metrics summary, All-Star/awards/All-NBA timeline, an interactive shot-zone court map with league-average comparison, position mix and play-by-play stats.
 - **Similar Players** — each player's closest stylistic matches across all eras, matched on a league-relative career stat fingerprint, how he scores (free throws per shot, three-point accuracy, and from 1996-97 on, assisted-shot share and shot locations), and his mix of playing styles (so players who changed roles, like Brook Lopez becoming a stretch big, match others who made the same change, and players with similar box scores but opposite scoring styles, like Curry and Harden, don't count as twins), with a one-click comparison. Stats an older player never had recorded count as a partial mismatch, so old-era matches aren't inflated.
+- **Salaries and contracts** — every player's pay by season since 1996-97 with his league rank, career earnings and current contract through 2030-31 (player and team options, guaranteed money, notes such as waivers and extensions), and every team's payroll history, current salary sheet and committed money for future seasons, measured against the salary cap, luxury tax and aprons. Contracts come from Basketball-Reference's team pages (each team's sheet adds up exactly to its official payroll, including money owed to waived players); past salaries are matched to players by name, with every match made under a different name checked by hand.
 - **Team Explorer** — U.S./Canada map of every franchise by season, with relocation paths, plus season-by-season rosters.
 - **Accounts** — sign up with email and password to favorite players and teams, save comparisons with notes, and get a public profile page (`/u/<username>`) showing what you've shared.
 - **All-Time Lineups** — pick any five player-seasons from any era. Every season is rated against its own league; the lineup is scored on talent, scoring, playmaking, rebounding, defense, spacing, efficiency and fit (combined usage, having a big and a guard), then graded against every real NBA starting five since 1951-52. Lineups can be saved, made public, shared, and remixed; unsaved lineups are shareable links too.
@@ -123,6 +124,7 @@ All endpoints are `GET`, JSON and versioned under `/api/v1`. Full reference with
 | `/search?q=` | Natural-language search: the filters it understood, any words it ignored, and the ranked player-seasons or careers (`drop=` removes a filter, `scope=` switches seasons/careers) |
 | `/players/{id}/gamelog?season=&type=`, `/players/{id}/highs?type=` | A player's games in a season (regular or playoffs); career highs, milestone counts and best scoring games |
 | `/head-to-head/teams?a=&b=`, `/head-to-head/players?a=&b=` | Two franchises' records, playoff series and recent games; two players' records and averages when they faced each other |
+| `/players/{id}/salaries`, `/teams/{franchise}/salaries` | A player's salary by season with league rank, and his current contract; a franchise's payroll by season (paid, then committed), its salary sheet, and the cap and tax lines |
 | `/games/coverage` | Which seasons have game-by-game data, and which playoffs are missing |
 | `/players/{id}/playoffs`, `/teams/{franchise}/playoffs` | Playoff seasons, career line and titles; a franchise's titles, Finals trips and every season's result |
 | `/playoffs/champions`, `/leaders/playoffs` | Every champion and runner-up; career playoff leaderboard |
@@ -210,6 +212,7 @@ scripts/
   prep_data.py             Raw CSVs -> data/*.json
   prep_playoffs.py         Game data + Deo Cheng series -> playoff series, titles, playoff stats (data/playoff_*.json, player_titles.json)
   prep_recent_honors.py    Award voting and All-NBA teams for seasons the main dataset lacks (from Deo Cheng, cross-checked)
+  prep_salaries.py         Salaries (1996-97 on, matched to players by name) and current contracts -> data/player_salaries.json, contracts.json
   build_finals_mvp.py      Finals MVP by season, verified against official counts -> data/finals_mvp.json
   prep_games.py            Game-by-game data from three sources, checked game by game -> data/games/*.csv.gz
   extract_deocheng_pbp_slice.py  Cuts play-by-play and ESPN box scores (2024 on) out of Deo_Cheng_NBA.zip

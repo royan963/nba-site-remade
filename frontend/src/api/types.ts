@@ -210,6 +210,23 @@ export interface ChampionTeam {
   w: number | null; l: number | null; srs: number | null; net: number | null; star_id: string | null; star: string | null; top_bpm: number | null;
 }
 export interface ChampionSeason { season: number; kind: 'backtest' | 'prediction' | 'preseason'; stats_season: number; teams: ChampionTeam[] }
+export interface ContractSeason { season: number; salary: number; option: 'player_option' | 'team_option' | null }
+export interface Contract {
+  player_id: string; player: string | null; team: string; guaranteed: number | null; two_way: boolean; notes: string[];
+  seasons: ContractSeason[];
+}
+export interface PlayerSalaries {
+  player_id: string; career_earnings: number; first_season: number | null;
+  seasons: { season: number; total: number; rank: number; players: number;
+             teams: { team: string; franchise: string | null; team_name: string | null; salary: number }[] }[];
+  contract: { as_of: string | null; season: number | null; teams: Contract[] };
+}
+export interface TeamSalaries {
+  franchise: string; as_of: string | null; season: number | null;
+  rules: { salary_cap?: number; luxury_tax?: number; first_apron?: number; second_apron?: number; minimum_team_salary?: number } | null;
+  payroll: { season: number; total: number; players: number; kind: 'paid' | 'committed'; league_avg: number | null }[];
+  sheet: Contract[];
+}
 export interface MvpSeason { season: number; kind: 'preseason' | 'prediction' | 'backtest'; stats_season: number; candidates: MvpCandidate[] }
 export interface Archetype {
   id: number; key: string; name: string; description: string; rule_based: boolean;

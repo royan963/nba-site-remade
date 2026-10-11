@@ -215,6 +215,40 @@ champion_candidates = Table(
     Column('top_bpm', Float),
 )
 
+# Salaries and contracts (scripts/prep_salaries.py -> data/player_salaries.json, data/contracts.json).
+# player_salaries: what each team paid each player, 1996-97 through the current season. A player can
+# have two rows in a season (traded, or still owed money by a team that waived him).
+player_salaries = Table(
+    'player_salaries', metadata,
+    Column('season', Integer, primary_key=True),
+    Column('player_id', String(16), ForeignKey('players.player_id'), primary_key=True),
+    Column('team', String(4), primary_key=True),           # NULL-free: rows without a known team are dropped
+    Column('salary', Integer, nullable=False),
+    Index('ix_player_salaries_team', 'season', 'team'),
+)
+
+# Every team's current salary sheet, by season through 2030-31 (Basketball-Reference contracts
+# pages, as scraped on meta['contracts']['as_of']). Includes money owed to waived players, so
+# summing a team's rows gives its payroll.
+contract_salaries = Table(
+    'contract_salaries', metadata,
+    Column('player_id', String(16), primary_key=True),     # not every signee has played yet: no FK
+    Column('team', String(4), primary_key=True),
+    Column('season', Integer, primary_key=True),
+    Column('salary', Integer, nullable=False),
+    Column('option', String(16)),                          # player_option / team_option / NULL
+    Index('ix_contract_salaries_team', 'team', 'season'),
+)
+contracts = Table(
+    'contracts', metadata,
+    Column('player_id', String(16), primary_key=True),
+    Column('team', String(4), primary_key=True),
+    Column('player', String(80)),
+    Column('guaranteed', Integer),
+    Column('two_way', Boolean, nullable=False),
+    Column('notes', Text),                                 # JSON list of strings
+)
+
 # Player archetypes (scripts/train_archetypes.py -> data/archetypes.json): each
 # qualified player-season's role. Role definitions and the trend over time live
 # in meta['archetype_model'].

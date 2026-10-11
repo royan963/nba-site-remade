@@ -211,6 +211,22 @@ with sync_playwright() as p:
     page.wait_for_selector('#pc-gamelog-panel', timeout=15000)
     check(page.locator('#pc-gamelog-panel').count() == 1, 'game log appears when scrolled to')
 
+    print('Salaries')
+    open_page(page, '/players/gilgesh01')
+    for _ in range(60):                       # the salary panel loads when scrolled to
+        if page.locator('#pc-salary-stats').count():
+            break
+        page.mouse.wheel(0, 500); page.wait_for_timeout(150)
+    page.wait_for_selector('#pc-salary-stats', timeout=15000)
+    check('career earnings' in page.locator('#pc-salary-stats').inner_text().lower(), 'player salary summary')
+    check('2030-31' in page.locator('#pc-contract-table').inner_text() and 'PO' in page.locator('#pc-contract-table').inner_text(),
+          'contract runs through 2030-31 with a player option')
+    check(page.locator('[data-testid="salary-chart"], #pc-salary-panel canvas').count() >= 1, 'salary chart')
+    open_page(page, '/teams/oklahoma-city-thunder')
+    page.wait_for_selector('#team-contracts-table', timeout=15000)
+    check('Shai Gilgeous-Alexander' in page.locator('#team-contracts-table tbody tr').first.inner_text(), 'team salary sheet, highest paid first')
+    check('luxury tax' in page.locator('#team-payroll-stats').inner_text().lower(), 'payroll vs. the cap and tax lines')
+
     print('Accounts')
     ctx = browser.new_context(viewport={'width': 1300, 'height': 1000})
     ctx.grant_permissions(['clipboard-read', 'clipboard-write'])

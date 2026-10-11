@@ -291,6 +291,9 @@ def main():
         step('Adding award voting and All-NBA teams the main dataset doesn\'t have yet')
         if not run([sys.executable, 'scripts/prep_recent_honors.py', str(d1)]):
             restore('prep_recent_honors.py failed (the two award sources disagree)')
+        step('Matching salaries and contracts to players')
+        if not run([sys.executable, 'scripts/prep_salaries.py', str(d1)]):
+            restore('prep_salaries.py failed (too few salaries matched a player, or a payroll didn\'t add up)')
         step('Rebuilding playoffs and rings' + ('' if (RAW_GAMES / 'schedule.csv').exists() else ' (box scores through 2023-24 kept as committed)'))
         if not run([sys.executable, 'scripts/prep_playoffs.py', str(RAW_GAMES), '--deocheng', str(d1)]):
             restore('prep_playoffs.py failed')

@@ -80,6 +80,11 @@ def build_rows():
 
     mvp = read('mvp_model') if (DATA / 'mvp_model.json').exists() else None
     champ = read('champion_model') if (DATA / 'champion_model.json').exists() else None
+    pay = as_dicts(read('player_salaries')) if (DATA / 'player_salaries.json').exists() else []
+    con = read('contracts') if (DATA / 'contracts.json').exists() else None
+    con_details = [dict(zip(con['detail_columns'], d)) for d in con['details']] if con else []
+    for d in con_details:
+        d['notes'] = json.dumps(d['notes'])
     roles = read('archetypes') if (DATA / 'archetypes.json').exists() else None
     MIN_SHARE = 3                                     # percent; smaller shares are noise
     season_mix = [{'player_id': r['player_id'], 'season': r['season'], 'archetype_id': a, 'share': v}
@@ -125,6 +130,7 @@ def build_rows():
         schema.player_archetype_mix: season_mix,
         schema.player_style_mix: career_mix,
         schema.player_projections: proj_rows,
+        schema.player_salaries: pay,
         schema.projection_comps: [dict(c, similar_id=c['comp_id']) for c in proj_comps],
     }
     dropped = {}
@@ -143,13 +149,15 @@ def build_rows():
         schema.draft_picks: as_dicts(read('draft')),
         schema.team_seasons: geo,
         schema.champion_candidates: as_dicts(champ) if champ else [],
+        schema.contract_salaries: as_dicts(con) if con else [],
+        schema.contracts: con_details,
         schema.playoff_series: p_series,
         schema.playoff_teams: p_teams,
         schema.finals_mvp: [r for r in (as_dicts(read('finals_mvp')) if (DATA / 'finals_mvp.json').exists() else []) if r['player_id'] in known],
         schema.league_trends: read('era_trends'),
         schema.league_env: as_dicts(read('league_env')),
         schema.league_shooting: as_dicts(read('league_avg_shooting')),
-    }, dropped, {'mvp': mvp, 'roles': roles, 'proj': proj, 'champ': champ}
+    }, dropped, {'mvp': mvp, 'roles': roles, 'proj': proj, 'champ': champ, 'contracts': con}
 
 
 def data_fingerprint() -> str:
@@ -275,7 +283,7 @@ def load_games(conn, known, franchise_of, batch=20000):
 def load(url=None, quiet=False):
     started = time.time()
     tables, dropped, models = build_rows()
-    mvp, roles, proj, champ = models['mvp'], models['roles'], models['proj'], models['champ']
+    mvp, roles, proj, champ, con = models['mvp'], models['roles'], models['proj'], models['champ'], models['contracts']
     engine = make_engine(url)
     latest = max(r['season'] for r in tables[schema.league_trends])
     with engine.begin() as conn:
@@ -303,6 +311,7 @@ def load(url=None, quiet=False):
              if roles else ''},
             {'key': 'champion_model', 'value': json.dumps({k: v for k, v in champ.items() if k not in ('columns', 'rows')})
              if champ else ''},
+            {'key': 'contracts', 'value': json.dumps({k: con[k] for k in ('season', 'as_of', 'rules')}) if con else ''},
             {'key': 'projection_model', 'value': json.dumps({k: v for k, v in proj.items() if k != 'players'}) if proj else ''},
         ])
     if not quiet:
