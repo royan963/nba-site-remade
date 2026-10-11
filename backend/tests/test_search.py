@@ -116,7 +116,7 @@ def test_search_careers(client):
 
 def test_search_names_and_examples(client):
     r = search(client, q='michael jordan')
-    assert r['results'] == [] and r['name_matches'][0]['player'] == 'Michael Jordan'
+    assert r['results'] == [] and r['player']['player'] == 'Michael Jordan' and len(r['player']['titles']) == 6
     r = search(client, q='zzqx')
     assert r['results'] == [] and r['name_matches'] == [] and r['examples']
 
@@ -127,3 +127,37 @@ def test_search_drop(client):
     r2 = search(client, q='best rebounding guards of the 90s', drop=[guards])
     assert r2['results'][0]['player'] == 'Dennis Rodman'
     assert all(f['kind'] != 'position' for f in r2['filters'])
+
+
+# ---- questions about players, playoffs, single games and more ---------------------------------------
+def test_named_player_questions(client):
+    assert search(client, q='how many rings does lebron have')['answer'] == 'LeBron James: 4 championships.'
+    assert search(client, q='how tall is wembanyama')['answer'] == 'Victor Wembanyama: 7\'4".'
+    r = search(client, q='lebron mvps')
+    assert sorted(x['season'] for x in r['results']) == [2009, 2010, 2012, 2013] and '2009, 2010, 2012, 2013' in r['answer']
+    r = search(client, q='shai gilgeous-alexander stats')          # just a name: a player card, nothing left unread
+    assert r['player']['player'] == 'Shai Gilgeous-Alexander' and r['ignored'] == [] and r['results'] == []
+    r = search(client, q='curry vs harden')
+    assert r['compare']['url'] == '/compare/players/curryst01/hardeja01'
+    assert search(client, q='compare lebron and jordan')['compare']['url'] == '/compare/players/jamesle01/jordami01'
+    # a common word that's also a surname isn't a player
+    assert search(client, q='best young players')['player'] is None
+
+
+def test_new_question_types(client):
+    r = search(client, q='who has the most championships')
+    assert r['results'][0]['player'] == 'Bill Russell' and r['answer'].endswith('11 championships.')
+    r = search(client, q='players who scored 60 points in a game')
+    assert r['scope'] == 'games' and r['results'][0]['player'] == 'Wilt Chamberlain' and r['results'][0]['value'] == 100
+    r = search(client, q='top 10 scorers in playoff history')
+    assert r['playoffs'] and r['scope'] == 'careers' and r['results'][0]['player'] == 'LeBron James' and len(r['results']) == 10
+    r = search(client, q='youngest mvp')
+    assert r['results'][0]['player'] == 'Derrick Rose' and r['results'][0]['value'] == 22
+    assert search(client, q='finals mvps since 2020')['results'][0]['player_id'] in {'jokicni01', 'antetgi01', 'curryst01', 'brownja02', 'gilgesh01', 'brunsja01'}
+    assert search(client, q='who won rookie of the year in 2026')['results'][0]['player'] == 'Cooper Flagg'
+    assert search(client, q='highest scoring season ever')['scope'] == 'seasons'          # 'season' beats 'ever'
+    assert search(client, q='best point guards ever')['results']                           # careers by their seasons' positions
+    r = search(client, q='who will win mvp')
+    assert r['results'] == [] and r['links'][0]['url'] == '/models/mvp'
+    r = search(client, q='steph curry 3 point percentage')
+    assert r['stat'] == 'x3p_pct' and all(x['player_id'] == 'curryst01' for x in r['results']) and r['ignored'] == []

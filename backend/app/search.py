@@ -10,10 +10,16 @@ from dataclasses import dataclass, field
 # ---- vocabulary ---------------------------------------------------------------------
 # (key, label, phrases). Longer phrases are matched first.
 STATS = [
-    ('x3p_pct', '3-point %', ['three point shooters', 'three-point shooters', '3 point shooters', '3-point shooters', '3pt shooters',
+    ('x3p_pct', '3-point %', ['3pt percentage', '3pt shooting', '3pt shooters', '3pt', 'three point shooters', 'three-point shooters', '3 point shooters', '3-point shooters', '3pt shooters',
                               'three point shooting', 'three-point shooting', '3-point shooting', '3 point percentage', 'three point percentage',
                               '3-point percentage', '3p%', '3pt%', 'from three', 'from 3', 'shooters', 'shooting']),
     ('x3pm', '3-pointers made per game', ['threes', '3-pointers', '3 pointers', 'three-pointers', 'three pointers', '3s']),
+    ('dbpm', 'Defensive BPM', ['defensive players', 'defensive player', 'defenders', 'defender', 'defense', 'defensive', 'stoppers', 'dbpm']),
+    ('height', 'Height', ['tallest', 'shortest', 'height', 'tall', 'short']),
+    ('age', 'Age', ['youngest', 'oldest']),
+    ('titles', 'Championships', ['championships', 'championship', 'rings', 'titles', 'title']),
+    ('salary', 'Salary', ['highest paid', 'best paid', 'most paid', 'salaries', 'salary', 'paid', 'contracts', 'contract', 'earnings',
+                          'expensive', 'money']),
     ('ft_pct', 'Free throw %', ['free throw shooters', 'free-throw shooters', 'free throw percentage', 'free throw shooting', 'ft%', 'free throws']),
     ('fg_pct', 'Field goal %', ['field goal percentage', 'field goal %', 'fg%', 'field goals']),
     ('ts_pct', 'True shooting %', ['true shooting', 'ts%', 'efficient', 'efficiency']),
@@ -25,7 +31,7 @@ STATS = [
     ('stl', 'Steals per game', ['steals', 'thieves', 'ball hawks', 'spg']),
     ('ast', 'Assists per game', ['assists', 'passers', 'passing', 'playmakers', 'playmaking', 'apg', 'dimes']),
     ('trb', 'Rebounds per game', ['rebounding', 'rebounders', 'rebounds', 'boards', 'rpg', 'glass']),
-    ('pts', 'Points per game', ['scoring', 'scorers', 'points', 'ppg', 'score', 'scorer']),
+    ('pts', 'Points per game', ['scoring', 'scorers', 'points', 'ppg', 'score', 'scorer', 'scored']),
     ('mp', 'Minutes per game', ['minutes', 'mpg']),
     ('g', 'Games played', ['games played', 'iron men', 'durable']),
 ]
@@ -45,12 +51,26 @@ POSITIONS = [
 ]
 DECADE_WORDS = {'forties': 1940, 'fifties': 1950, 'sixties': 1960, 'seventies': 1970, 'eighties': 1980, 'nineties': 1990,
                 'two thousands': 2000, 'aughts': 2000, 'twenty tens': 2010, 'teens': 2010, 'twenties': 2020}
-CAREER_WORDS = ['all-time', 'all time', 'of all time', 'career', 'careers', 'in history', 'in nba history', 'ever']
+CAREER_WORDS = ['all-time', 'all time', 'of all time', 'career', 'careers', 'in history', 'in nba history', 'history', 'ever']
+GAME_WORDS = ['in a single game', 'in one game', 'in a game', 'single game', 'single-game', 'one game', 'performances', 'performance']
+GAME_PATTERN = r'\b(?:in|during)\s+(?:a|one|any|an)\s+(?:single\s+|playoff\s+|postseason\s+|regular[- ]season\s+)?game\b'
+PLAYOFF_WORDS = ['in the playoffs', 'in playoff history', 'playoff history', 'postseason', 'playoffs', 'playoff']
+CAREER_ONLY = {'height', 'titles'}                 # attributes of a player, not of a season
+ASCENDING = {'shortest', 'youngest'}               # superlatives that rank low to high
 SEASON_WORDS = ['single season', 'single-season', 'in a season', 'in one season', 'season']
 WORST = ['worst', 'lowest', 'fewest', 'least']
+# season awards: (pattern, key, label). Order matters: 'finals mvp' before 'mvp', 'rookie of the year' before 'rookie'.
+AWARDS = [(r'\bfinals mvps?\b', 'finals_mvp', 'Finals MVP'),
+          (r'\bdefensive players? of the year\b|\bdpoys?\b', 'dpoy', 'Defensive Player of the Year'),
+          (r'\brookies? of the year\b|\broys?\b', 'roy', 'Rookie of the Year'),
+          (r'\bsixth m[ae]n(?: of the year)?\b|\b6th m[ae]n\b|\b6moy\b', 'smoy', 'Sixth Man of the Year'),
+          (r'\bmost improved(?: players?)?(?: of the year)?\b|\bmips?\b', 'mip', 'Most Improved Player'),
+          (r'\bclutch players? of the year\b|\bclutch players?\b', 'clutch', 'Clutch Player of the Year')]
 STOPWORDS = set('''the a an of in by with who which that players player nba best top most greatest highest leading
     and or for from to at on season seasons year years list show me find give all what were was is are have has had did do
-    averaging averaged average avg per game games' good great elite during era time any'''.split())
+    averaging averaged average avg per game games' good great elite during era time any how many much does won win wins
+    winners winner winning stats statistics numbers led lead leads leaders leader league ranked rank ranking got get
+    made make makes shoot shoots shot hit hits his her their career's vs versus compare compared better than'''.split())
 
 
 @dataclass
@@ -79,7 +99,9 @@ class Query:
     sophomore: bool = False
     teams: list = field(default_factory=list)      # team names (from the teams vocabulary)
     minimums: list = field(default_factory=list)   # (stat, op, value)
-    honors: set = field(default_factory=set)       # mvp, all_star, hof, all_nba
+    honors: set = field(default_factory=set)       # mvp, all_star, hof, all_nba, finals_mvp, dpoy, roy, smoy, mip, clutch
+    playoffs: bool = False                         # playoff stats instead of the regular season
+    player_ids: list = field(default_factory=list) # questions about named players (set by the router)
     filters: list = field(default_factory=list)    # what was understood, for display
     ignored: list = field(default_factory=list)    # words that didn't match anything
     stat_given: bool = False                       # False when we fell back to ranking by Win Shares
@@ -93,6 +115,7 @@ class Query:
 def _norm(text: str) -> str:
     t = text.lower().replace('\u2019', "'").replace('\u2018', "'").replace('\u2013', '-').replace('\u2014', '-')
     t = re.sub(r'[?!.,;:"]', ' ', t)
+    t = re.sub(r'\b(?:3|three)[- ]?(?:point|pt)(?!er)s?\b', '3pt', t)          # '3 point percentage' isn't '3+ points'
     return re.sub(r'\s+', ' ', t).strip()
 
 
@@ -147,9 +170,34 @@ def parse(text: str, teams: dict | None = None, archetypes: dict | None = None, 
         q.limit = max(1, min(100, int(m.group(1))))
         q.filters.append(Filter('limit', f'top {q.limit}', q.limit))
 
-    # careers vs seasons
-    single = any(t.has(w) for w in ('single season', 'single-season', 'in a season', 'in one season'))
-    if not single and any(t.has(w) for w in CAREER_WORDS):
+    # single games, playoffs, careers vs seasons
+    if t.take(GAME_PATTERN) or any(t.has(w) for w in GAME_WORDS) or re.search(r'\b\d{2,3}[- ]point games?\b', t.s):
+        q.scope = 'games'
+        t.s = re.sub(r'(?<=point) games?\b', '', t.s)
+        if re.search(r'\bplayoff game|\bpostseason game', text.lower()):
+            t.s = t.s + ' playoffs '
+        for w in GAME_WORDS:
+            t.take_phrase(w)
+        q.filters.append(Filter('scope', 'single games'))
+    if any(t.has(w) for w in PLAYOFF_WORDS):
+        q.playoffs = True
+        history = t.has('playoff history')
+        for w in PLAYOFF_WORDS:
+            t.take_phrase(w)
+        if history and q.scope != 'games':
+            q.scope = 'careers'
+            q.filters.append(Filter('scope', 'careers'))
+        q.filters.append(Filter('playoffs', 'playoffs'))
+    # 'season' beats 'ever': "highest scoring season ever" asks about seasons
+    single = any(t.has(w) for w in ('single season', 'single-season', 'in a season', 'in one season', 'season')) and not t.has('career')
+    if single:
+        t.take_phrase('ever')
+    # season awards here, before 'rookie' and 'mvp' are read on their own ('rookie of the year', 'finals mvp')
+    for pattern, key, label in AWARDS:
+        if t.take(pattern):
+            q.honors.add(key)
+            q.filters.append(Filter('honor', label, key))
+    if q.scope == 'seasons' and not single and any(t.has(w) for w in CAREER_WORDS):
         q.scope = 'careers'
         for w in CAREER_WORDS:
             t.take_phrase(w)
@@ -159,6 +207,9 @@ def parse(text: str, teams: dict | None = None, archetypes: dict | None = None, 
 
     if any(t.take_phrase(w) for w in WORST):
         q.order = 'asc'
+    if t.take(r'\bwho led the league\b|\bled the league\b|\bleague leaders?\b'):
+        q.limit = 1 if q.limit == 25 else q.limit
+        q.superlative = True
 
     # statlines: 50/40/90, 25/10/5, 25 and 10, triple-double
     m = t.take(r'\b(\d{2})\s*/\s*(\d{2})\s*/\s*(\d{2,3})\b')
@@ -255,6 +306,8 @@ def parse(text: str, teams: dict | None = None, archetypes: dict | None = None, 
         q.age_min = q.age_max = int(m.group(1))
     if t.take(r'\bteenagers?\b|\bteens?\b'):
         q.age_max = 19
+    if q.age_max is None and t.take(r'\byoung\b(?! *(?:est|er))'):
+        q.age_max = 24
     if q.age_min is not None or q.age_max is not None:
         lab = (f'age {q.age_min}' if q.age_min == q.age_max else
                f'age {q.age_max} or younger' if q.age_min is None else
@@ -303,6 +356,12 @@ def parse(text: str, teams: dict | None = None, archetypes: dict | None = None, 
     for phrase, key in sorted(((p, k) for k, _, ps in STATS for p in ps), key=lambda pk: -len(pk[0])):
         if t.take_phrase(phrase) and q.stat is None:
             q.stat, q.stat_given = key, True
+            if phrase in ASCENDING:
+                q.order = 'asc'
+    if q.stat in CAREER_ONLY and q.scope == 'seasons':
+        q.scope = 'careers'
+    if q.stat == 'age' and q.scope == 'careers':
+        q.scope = 'seasons'
     if q.stat is None:
         q.stat = q.minimums[0][0] if q.minimums and q.minimums[0][0] not in ('fg_pct', 'x3p_pct', 'ft_pct') else 'ws'
     q.filters.insert(0, Filter('stat', ('lowest ' if q.order == 'asc' else '') + STAT_LABEL[q.stat], q.stat))
@@ -339,6 +398,10 @@ def drop_filters(q: Query, indexes) -> Query:
             q.limit = 25
         elif f.kind == 'scope':
             q.scope = 'seasons'
+        elif f.kind == 'playoffs':
+            q.playoffs = False
+        elif f.kind == 'player':
+            q.player_ids = []
         elif f.kind == 'stat':
             q.stat, q.order = 'ws', 'desc'
             q.filters.insert(0, Filter('stat', STAT_LABEL['ws'], 'ws', index=None))

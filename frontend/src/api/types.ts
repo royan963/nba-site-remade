@@ -274,8 +274,15 @@ export interface ProjectionRow {
   player_id: string; player: string; hof: boolean; age: number /* age next season */; team: string; now_pts: number; pts: number;
   pts_lo: number; pts_hi: number; p_active: number; change: number;
 }
+export interface SearchPlayerCard {
+  player_id: string; player: string; hof: boolean; pos: string | null; height: number | null; weight: number | null; age: number | null; age_season: number | null;
+  first_season: number; last_season: number; g: number; pts: number; ppg: number | null; rpg: number | null; apg: number | null; ws: number | null;
+  all_star: number | null; titles: number[]; mvps: number[]; finals_mvps: number[]; salary: { season: number; amount: number } | null;
+}
 export interface SearchResponse {
-  query: string; scope: 'seasons' | 'careers'; stat: string; stat_label: string; stat_is_pct: boolean; order: 'asc' | 'desc';
+  query: string; scope: 'seasons' | 'careers' | 'games'; playoffs?: boolean; stat: string; stat_label: string; stat_is_pct: boolean; order: 'asc' | 'desc';
+  answer?: string | null; player?: SearchPlayerCard | null; links?: { label: string; url: string }[];
+  compare?: { a: { player_id: string; player: string }; b: { player_id: string; player: string }; url: string; cards: SearchPlayerCard[] } | null;
   filters: { index: number | null; kind: string; label: string }[]; dropped: number[];
   ignored: string[]; notes: string[]; understood: boolean; season_note: string | null; examples: string[];
   name_matches: { player_id: string; player: string; hof: boolean; first_season: number; last_season: number }[];
