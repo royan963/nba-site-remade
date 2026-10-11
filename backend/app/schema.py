@@ -211,7 +211,7 @@ champion_candidates = Table(
     Column('l', Integer),
     Column('srs', Float),
     Column('net', Float),
-    Column('star_id', String(16)),                         # most Win Shares on the roster
+    Column('star_id', String(16)),                         # most VORP on the roster
     Column('top_bpm', Float),
 )
 

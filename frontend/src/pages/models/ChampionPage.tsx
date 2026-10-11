@@ -65,7 +65,7 @@ function Race({ model, season, onSeason }: { model: ChampionModel; season: numbe
           <table className="lb-table mvp-table">
             <thead>
               <tr>
-                <th>#</th><th>Team</th><th>W-L</th><th>SRS</th><th>Net rtg</th><th>Best player</th><th>BPM</th>
+                <th>#</th><th>Team</th><th>W-L</th><th>SRS</th><th>Net rtg</th><th title="Most VORP on the roster">Top player</th><th title="Best Box Plus/Minus on the roster (1,000+ minutes), a model input">Best BPM</th>
                 <th>Title chance</th>{decided && <th>What happened</th>}
               </tr>
             </thead>

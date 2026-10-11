@@ -68,12 +68,12 @@ def build_features() -> pd.DataFrame:
     adv = frame('player_advanced')[['season', 'player_id', 'vorp', 'bpm', 'ws']]
     st = ps[~ps['team'].isin(MULTI)].merge(adv, on=['season', 'player_id'], how='left')
     st['minutes'] = st['mp'].fillna(0) * st['g'].fillna(0)
-    st = st.sort_values('ws', ascending=False)
+    st = st.sort_values('vorp', ascending=False)
     grp = st.groupby(['season', 'team'])
     r = pd.DataFrame({
         'top3_vorp': grp['vorp'].apply(lambda s: s.sort_values(ascending=False).iloc[:3].sum(min_count=1)),
         'top_bpm': st[st['minutes'] >= 1000].groupby(['season', 'team'])['bpm'].max(),
-        'star_id': grp['player_id'].first(),          # most Win Shares
+        'star_id': grp['player_id'].first(),          # most VORP
     }).reset_index().rename(columns={'team': 'abbr'})
     t = t.merge(r, on=['season', 'abbr'], how='left')
     t['top3_vorp_z'] = zscore(t, 'top3_vorp')
