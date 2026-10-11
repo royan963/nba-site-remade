@@ -13,10 +13,11 @@ export function MvpPage() {
   const [seasonRaw, setSeason] = useQueryParam('season', '');
   if (error) return <ErrorNote error={error} />;
   if (!model) return <Loading />;
-  const season = model.seasons.includes(parseInt(seasonRaw, 10)) ? parseInt(seasonRaw, 10) : model.latest_season;
+  const current = model.preseason?.season ?? model.latest_season;     // the upcoming season once the last vote is in
+  const season = model.seasons.includes(parseInt(seasonRaw, 10)) ? parseInt(seasonRaw, 10) : current;
   return (
     <div id="mvp-page">
-      <Race model={model} season={season} onSeason={v => setSeason(v === model.latest_season ? '' : String(v))} />
+      <Race model={model} season={season} onSeason={v => setSeason(v === current ? '' : String(v))} />
       <ModelCard model={model} onSeason={v => setSeason(String(v))} />
     </div>
   );
@@ -24,21 +25,24 @@ export function MvpPage() {
 
 function Race({ model, season, onSeason }: { model: MvpModel; season: number; onSeason: (s: number) => void }) {
   const { data, error } = useApi<MvpSeason>(`/models/mvp/${season}`);
-  const prediction = data?.kind === 'prediction';
+  const prediction = data?.kind === 'prediction' || data?.kind === 'preseason';
+  const pre = data?.kind === 'preseason' ? model.preseason : null;
   const winner = data?.candidates.find(c => c.winner);
   const top = data?.candidates[0];
   return (
     <Panel id="mvp-race">
       <div className="player-header">
         <div>
-          <SectionHead title={`${season} MVP race`} small>
-            {prediction
+          <SectionHead title={`${season} MVP race${pre ? ' (preseason)' : ''}`} small>
+            {pre
+              ? `A preseason prediction, before any ${season} games: a second model learned how each season’s stats and voting carry over to the next MVP vote. Tested on every season from ${pre.season - pre.metrics.seasons} on, it picked the eventual MVP ${pct(pre.metrics.top1)} of the time and had him in its top 3 ${pct(pre.metrics.top3)} of the time (last season’s top vote-getter: ${pct(pre.metrics.baseline_top1)}).`
+              : prediction
               ? `A true prediction: ${season} voting isn\u2019t in the dataset yet. The model was trained on every season from 1956 to ${model.metrics.trained_through}.`
               : `Backtest: this season was predicted by a model trained on every other season, so it never saw this vote.`}
           </SectionHead>
         </div>
         <select id="mvp-season" value={season} onChange={e => onSeason(parseInt(e.target.value, 10))} aria-label="Season">
-          {model.seasons.map(s => <option key={s} value={s}>{s}{s === model.latest_season && !model.latest_has_votes ? ' (prediction)' : ''}</option>)}
+          {model.seasons.map(s => <option key={s} value={s}>{s}{s === model.preseason?.season ? ' (preseason)' : s === model.latest_season && !model.latest_has_votes ? ' (prediction)' : ''}</option>)}
         </select>
       </div>
       {error && <ErrorNote error={error} />}
@@ -49,6 +53,11 @@ function Race({ model, season, onSeason }: { model: MvpModel; season: number; on
             ? <>The model picked the winner: <b>{winner.player}</b>.</>
             : <>The model picked <b>{top.player}</b>; voters chose <b>{winner.player}</b> (model rank #{winner.rank}).</>}
         </div>
+      )}
+      {data && pre && (
+        <p className="section-sub" id="mvp-preseason-note" style={{ margin: '0 0 10px' }}>
+          Stats, team and games are from the {data.stats_season} season, so offseason trades and injuries aren&rsquo;t reflected. It uses: {pre.metrics.features.join(', ')}.
+        </p>
       )}
       {data && (
         <div className="table-scroll">
@@ -84,7 +93,7 @@ function Race({ model, season, onSeason }: { model: MvpModel; season: number; on
           </table>
         </div>
       )}
-      {data && model.games_rule_season <= season && (
+      {data && !pre && model.games_rule_season <= season && (
         <p className="section-sub" style={{ marginTop: 12, marginBottom: 0 }}>
           From {model.games_rule_season} on, MVP candidates need {model.games_rule.min} games. Players under {model.games_rule.hard_min} are left out; the exceptions that count some shorter games aren&rsquo;t in this data.
         </p>

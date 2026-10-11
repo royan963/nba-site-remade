@@ -116,6 +116,9 @@ with sync_playwright() as p:
     check(path_of(page) == '/models/mvp', '/models opens the MVP predictor')
     check(page.locator('#mvp-tbody tr').count() >= 10, 'MVP race table lists candidates')
     check('%' in page.locator('#mvp-accuracy').inner_text(), 'model accuracy card')
+    page.wait_for_selector('#mvp-preseason-note', timeout=15000)
+    check('(preseason)' in page.locator('#mvp-race .section-title').inner_text().lower() and page.locator('#mvp-preseason-note').count() == 1,
+          'opens on the upcoming preseason race')
     page.select_option('#mvp-season', '1962'); page.wait_for_timeout(700)
     check('season=1962' in page.url and 'Bill Russell' in page.locator('#mvp-verdict').inner_text(), 'backtest season via picker + URL')
     page.locator('.mvp-miss').first.click(); page.wait_for_timeout(700)

@@ -186,6 +186,7 @@ export interface MvpModel {
   importances: { feature: string; label: string; importance: number }[];
   misses: { season: number; predicted: string; actual: string; predicted_name: string | null; actual_name: string | null }[];
   latest_season: number; latest_has_votes: boolean; games_rule_season: number; games_rule: { min: number; hard_min: number };
+  preseason: { season: number; base_season: number; metrics: { seasons: number; top1: number; top3: number; baseline_top1: number; favorite_prob: number; features: string[] } } | null;
   seasons: number[];
 }
 export interface MvpCandidate {
@@ -194,7 +195,7 @@ export interface MvpCandidate {
   eligible: boolean; needs_exception: boolean; team: string | null; g: number | null; win_pct: number | null;
   pts: number | null; trb: number | null; ast: number | null; per: number | null; ws: number | null; bpm: number | null; vorp: number | null;
 }
-export interface MvpSeason { season: number; kind: 'prediction' | 'backtest'; candidates: MvpCandidate[] }
+export interface MvpSeason { season: number; kind: 'preseason' | 'prediction' | 'backtest'; stats_season: number; candidates: MvpCandidate[] }
 export interface Archetype {
   id: number; key: string; name: string; description: string; rule_based: boolean;
   profile: Record<string, number>; share_by_decade: Record<string, number>;

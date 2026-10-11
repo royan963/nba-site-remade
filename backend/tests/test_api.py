@@ -211,7 +211,8 @@ def test_frontend_deep_links_fall_back_to_the_app(client):
 def test_mvp_model_card(client):
     m = get(client, '/api/v1/models/mvp')
     assert m['metrics']['seasons'] >= 70 and m['metrics']['top1'] > m['metrics']['baseline_top1']
-    assert m['importances'][0]['label'] and m['seasons'][0] == m['latest_season']
+    newest = m['preseason']['season'] if m['preseason'] else m['latest_season']
+    assert m['importances'][0]['label'] and m['seasons'][0] == newest
     assert all(x['predicted_name'] and x['actual_name'] for x in m['misses'])
 
 
@@ -230,6 +231,26 @@ def test_mvp_current_race(client):
     assert r['kind'] == ('backtest' if m['latest_has_votes'] else 'prediction')
     assert r['candidates'][0]['pts'] is not None
     assert len({c['player_id'] for c in r['candidates']}) == len(r['candidates'])   # traded players listed once
+
+
+def test_mvp_preseason_race(client):
+    # once the latest season's vote is in, the next season gets a preseason race
+    m = get(client, '/api/v1/models/mvp')
+    assert m['latest_has_votes'] and m['preseason']['season'] == m['latest_season'] + 1
+    assert m['preseason']['metrics']['top1'] > m['preseason']['metrics']['baseline_top1']
+    r = get(client, f"/api/v1/models/mvp/{m['preseason']['season']}")
+    assert r['kind'] == 'preseason' and r['stats_season'] == m['latest_season']
+    assert r['candidates'][0]['pts'] is not None and r['candidates'][0]['actual_share'] is None
+    probs = [c['win_prob'] for c in r['candidates']]
+    assert sum(probs) <= 1.0001 and probs[0] == max(probs) and probs[0] < 0.75   # a year out, no lock
+
+
+def test_2026_awards(client):
+    # 2025-26 voting comes from the Deo Cheng tables (the main dataset stops at 2024-25)
+    h = get(client, '/api/v1/players/gilgesh01/honors')
+    assert sorted(a['season'] for a in h['awards'] if a['award'] == 'nba mvp' and a['winner']) == [2025, 2026]
+    assert any(t['season'] == 2026 and t['team_type'] == 'All-NBA' and t['team_number'] == '1st' for t in h['all_league_teams'])
+    assert any(a['season'] == 2026 and a['award'] == 'nba roy' and a['winner'] for a in get(client, '/api/v1/players/flaggco01/honors')['awards'])
 
 
 def test_mvp_unknown_season(client):

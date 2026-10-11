@@ -273,9 +273,6 @@ def main():
     step('Regenerating data/*.json')
     if not run([sys.executable, 'scripts/prep_data.py', str(csv_dir)]):
         restore('prep_data.py failed')
-    step('Training the MVP model')
-    if not run([sys.executable, 'scripts/train_mvp.py']):
-        restore('train_mvp.py failed')
     step('Training the archetype model')
     if not run([sys.executable, 'scripts/train_archetypes.py']):
         restore('train_archetypes.py failed')
@@ -291,6 +288,9 @@ def main():
     if not args.no_games:
         step('Getting the Deo Cheng data (playoff series, honors, game logs, play-by-play)')
         d1, d2 = deocheng_slices(args)
+        step('Adding award voting and All-NBA teams the main dataset doesn\'t have yet')
+        if not run([sys.executable, 'scripts/prep_recent_honors.py', str(d1)]):
+            restore('prep_recent_honors.py failed (the two award sources disagree)')
         step('Rebuilding playoffs and rings' + ('' if (RAW_GAMES / 'schedule.csv').exists() else ' (box scores through 2023-24 kept as committed)'))
         if not run([sys.executable, 'scripts/prep_playoffs.py', str(RAW_GAMES), '--deocheng', str(d1)]):
             restore('prep_playoffs.py failed')
@@ -303,6 +303,10 @@ def main():
             cmd += ['--base', str(RAW_GAMES)]
         if not run(cmd + [str(d1), str(d2)]):
             restore('prep_games.py failed or a season fell below the coverage minimum')
+    # after the Deo Cheng step, so the newest season's MVP vote is in before training
+    step('Training the MVP model')
+    if not run([sys.executable, 'scripts/train_mvp.py']):
+        restore('train_mvp.py failed')
     step('Rebuilding index.html')
     if not run([sys.executable, 'build.py']):
         restore('build.py failed')

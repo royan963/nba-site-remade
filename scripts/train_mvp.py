@@ -7,6 +7,9 @@ Reads data/*.json (from prep_data.py) and writes data/mvp_model.json:
   - current: the latest season's race, from a model trained on every season
   - metrics vs. a simple baseline (pick the Win Shares leader)
   - feature importances (permutation importance on the backtest)
+  - preseason: once the latest season's vote is in, next season's race before
+    any games are played, from a second model that learned how each season's
+    stats and voting carry over to the next season's vote (backtested the same way)
 
 Usage:  pip install scikit-learn && python3 scripts/train_mvp.py
 """
@@ -97,15 +100,101 @@ LABELS = {
 }
 
 
+# Preseason model: one season's line predicts the next season's vote share. A year out, a
+# few strong signals beat the full feature set (tested: 37% vs 24% of MVPs picked).
+PRE_FEATURES = ['age', 'share', 'vorp', 'bpm', 'win_pct', 'ws']
+PRE_LABELS = {'age': 'Age', 'share': 'MVP vote share last season', 'vorp': 'VORP', 'bpm': 'Box Plus/Minus',
+              'win_pct': 'Team win %', 'ws': 'Win Shares'}
+
+
 def model():
     return HistGradientBoostingRegressor(max_iter=300, learning_rate=0.05, max_leaf_nodes=15, min_samples_leaf=20,
                                          l2_regularization=1.0, random_state=SEED)
+
+
+def pre_model():
+    return HistGradientBoostingRegressor(max_iter=150, learning_rate=0.05, max_leaf_nodes=7, min_samples_leaf=40,
+                                         l2_regularization=2.0, random_state=SEED)
 
 
 def season_probabilities(pred: pd.Series, temperature: float) -> pd.Series:
     """Turn predicted shares into a chance of winning (softmax within the season)."""
     z = np.exp((pred - pred.max()) / temperature)
     return z / z.sum()
+
+
+def calibrate(groups) -> float:
+    """Temperature that best explains who actually won. groups: (predictions, winner index or None) per season."""
+    def nll(t):
+        total = 0.0
+        for pred, winner in groups:
+            p = season_probabilities(pred, t)
+            total -= math.log(max(p.get(winner, 1e-9), 1e-9)) if winner is not None else 0
+        return total
+    return min(np.arange(0.02, 0.5, 0.01), key=nll)
+
+
+def share_probabilities(pred: pd.Series, power: float) -> pd.Series:
+    """Chance of winning in proportion to predicted share (raised to a power). A year out this is
+    calibrated far better than the softmax: favorites the model rated ~60-80% in a softmax won ~30%."""
+    z = np.power(np.maximum(pred, 1e-6), power)
+    return z / z.sum()
+
+
+def preseason(df: pd.DataFrame, last_voted: int):
+    """Next season's race from this season's stats. Returns (metrics, base-season rows with 'pred' and 'win_prob').
+
+    Each player-season is a training row labelled with the same player's MVP vote
+    share the following season (0 if he got no votes or didn't play). Every
+    target season is predicted by a model that never saw it, like the main backtest.
+    """
+    aw = frame('player_award_shares')
+    mvp = aw[aw['award'] == 'nba mvp'][['season', 'player_id', 'share', 'winner']]
+    base = df.assign(target_season=df['season'] + 1)
+    nxt = mvp.rename(columns={'season': 'target_season', 'share': 'next_share', 'winner': 'next_winner'})
+    base = base.merge(nxt, on=['player_id', 'target_season'], how='left')
+    base['next_share'] = base['next_share'].fillna(0.0)
+    base['next_winner'] = base['next_winner'].eq(True)
+    train = base[base['target_season'] <= last_voted]
+
+    X, y = train[PRE_FEATURES], train['next_share']
+    oof = pd.Series(np.nan, index=train.index)
+    for season in sorted(train['target_season'].unique()):
+        test = train['target_season'] == season
+        oof[test] = pre_model().fit(X[~test], y[~test]).predict(X[test])
+    train = train.assign(pred=oof.clip(lower=0))
+
+    # win chances: the power that best explains who actually won
+    groups = [(g['pred'], g.index[g['next_winner']][0] if g['next_winner'].any() else None)
+              for _, g in train.groupby('target_season')]
+    def nll(k):
+        return -sum(math.log(max(share_probabilities(p, k).get(w, 1e-9), 1e-9)) for p, w in groups if w is not None)
+    power = min(np.arange(0.5, 8.0, 0.1), key=nll)
+
+    # The real MVP isn't always in the previous season's pool (a rookie MVP, a comeback from
+    # a missed season); those seasons count as misses.
+    results = []
+    for season, g in train.groupby('target_season'):
+        g = g.sort_values('pred', ascending=False)
+        favorite = g.sort_values('share', ascending=False).iloc[0]     # baseline: last season's top vote-getter
+        results.append({'hit': bool(g.iloc[0]['next_winner']), 'top3': bool(g['next_winner'].iloc[:3].any()),
+                        'baseline': bool(favorite['next_winner']),
+                        'favorite_prob': float(share_probabilities(g['pred'], power).iloc[0])})
+    res = pd.DataFrame(results)
+    metrics = {
+        'seasons': int(len(res)),
+        'top1': round(float(res['hit'].mean()), 3),
+        'top3': round(float(res['top3'].mean()), 3),
+        'baseline_top1': round(float(res['baseline'].mean()), 3),
+        'favorite_prob': round(float(res['favorite_prob'].mean()), 3),     # average chance given to its pick
+        'power': round(float(power), 2),
+        'features': [PRE_LABELS[f] for f in PRE_FEATURES],
+    }
+    final = pre_model().fit(X, y)
+    cur = base[base['season'] == last_voted].copy()
+    cur['pred'] = final.predict(cur[PRE_FEATURES]).clip(min=0)
+    cur['win_prob'] = share_probabilities(cur['pred'], power)
+    return metrics, cur
 
 
 def main():
@@ -127,14 +216,8 @@ def main():
     hist = hist.assign(pred=oof.clip(lower=0))
 
     # calibrate win probabilities: temperature that best explains who actually won
-    def nll(t):
-        total = 0.0
-        for _, g in hist.groupby('season'):
-            p = season_probabilities(g['pred'][g['eligible']], t)
-            winner = g.index[g['winner']]
-            total -= math.log(max(p.get(winner[0], 1e-9), 1e-9)) if len(winner) else 0
-        return total
-    temperature = min(np.arange(0.02, 0.5, 0.01), key=nll)
+    temperature = calibrate([(g['pred'][g['eligible']], g.index[g['winner']][0] if g['winner'].any() else None)
+                             for _, g in hist.groupby('season')])
 
     results, misses = [], []
     for season, g in hist.groupby('season'):
@@ -208,10 +291,26 @@ def main():
             c['actual_rank'] = None
             candidates.append(c)
 
+    # ---- preseason race for the next season, once the latest vote is in -------------------------
+    pre = None
+    if has_votes:
+        pre_metrics, base = preseason(df, latest)
+        for rank, (_, r) in enumerate(base.sort_values('pred', ascending=False).head(15).iterrows(), start=1):
+            candidates.append({
+                'season': latest + 1, 'player_id': r['player_id'], 'rank': rank,
+                'predicted_share': round(float(r['pred']), 4), 'win_prob': round(float(r['win_prob']), 4),
+                'actual_share': None, 'winner': False, 'eligible': True, 'needs_exception': False, 'team': r['team'],
+                'g': int(r['g']), 'win_pct': None if pd.isna(r['win_pct']) else round(float(r['win_pct']), 3), 'actual_rank': None,
+            })
+        pre = {'season': latest + 1, 'base_season': latest, 'metrics': pre_metrics}
+        print(f"preseason backtest: picks the MVP in {pre_metrics['top1']:.0%} of seasons (top 3: {pre_metrics['top3']:.0%}); "
+              f"last season's top vote-getter: {pre_metrics['baseline_top1']:.0%}")
+        print(f'{latest + 1} preseason:', ', '.join([f"{c['player_id']} {c['win_prob']:.0%}" for c in candidates if c['season'] == latest + 1][:5]))
+
     out = {
         'latest_season': latest, 'latest_has_votes': has_votes, 'games_rule_season': GAMES_RULE_SEASON,
         'games_rule': {'min': RULE_GAMES, 'hard_min': HARD_MIN_GAMES},
-        'metrics': metrics, 'importances': importances, 'misses': misses,
+        'metrics': metrics, 'importances': importances, 'misses': misses, 'preseason': pre,
         'columns': list(candidates[0].keys()), 'rows': [list(c.values()) for c in candidates],
     }
     (DATA / 'mvp_model.json').write_text(json.dumps(out, allow_nan=False))

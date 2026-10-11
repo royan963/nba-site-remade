@@ -28,6 +28,7 @@ def mvp_model(response: Response, conn=Depends(get_conn)):
     seasons = [r for (r,) in conn.execute(select(s.mvp_candidates.c.season).distinct().order_by(s.mvp_candidates.c.season.desc()))]
     return {
         **{k: info[k] for k in ('metrics', 'importances', 'latest_season', 'latest_has_votes', 'games_rule_season', 'games_rule')},
+        'preseason': info.get('preseason'),
         'misses': [{**m, 'predicted_name': names.get(m['predicted']), 'actual_name': names.get(m['actual'])} for m in info['misses']],
         'seasons': seasons,
     }
@@ -37,13 +38,17 @@ def mvp_model(response: Response, conn=Depends(get_conn)):
 def mvp_season(season: int, response: Response, conn=Depends(get_conn)):
     response.headers['Cache-Control'] = 'public, max-age=3600'
     info = model_info(conn)
+    pre = info.get('preseason')
+    preseason = bool(pre) and season == pre['season']
+    # a preseason race has no games yet: show the season it was predicted from
+    stats_season = pre['base_season'] if preseason else season
     c, p = s.mvp_candidates, s.players
     ps, adv = s.player_seasons, s.player_advanced
     # the season's per-game line: the combined row for traded players, else the only row
     stmt = (select(c, p.c.player, p.c.hof, p.c.pos, ps.c.pts, ps.c.trb, ps.c.ast, adv.c.per, adv.c.ws, adv.c.bpm, adv.c.vorp, ps.c.team.label('row_team'))
             .join(p, p.c.player_id == c.c.player_id)
-            .join(ps, and_(ps.c.player_id == c.c.player_id, ps.c.season == c.c.season))
-            .outerjoin(adv, and_(adv.c.player_id == c.c.player_id, adv.c.season == c.c.season))
+            .join(ps, and_(ps.c.player_id == c.c.player_id, ps.c.season == stats_season))
+            .outerjoin(adv, and_(adv.c.player_id == c.c.player_id, adv.c.season == stats_season))
             .where(c.c.season == season)
             .order_by(c.c.rank, ps.c.combined.desc()))
     rows, seen = [], set()
@@ -55,7 +60,8 @@ def mvp_season(season: int, response: Response, conn=Depends(get_conn)):
     if not rows:
         raise HTTPException(404, f'No MVP data for {season}')
     predicted = season == info['latest_season'] and not info['latest_has_votes']
-    return {'season': season, 'kind': 'prediction' if predicted else 'backtest', 'candidates': rows}
+    kind = 'preseason' if preseason else 'prediction' if predicted else 'backtest'
+    return {'season': season, 'kind': kind, 'stats_season': stats_season, 'candidates': rows}
 
 
 # ---- player archetypes ---------------------------------------------------------------
