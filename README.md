@@ -6,9 +6,12 @@ An interactive dashboard exploring 80 seasons of NBA history (1947–2026): leag
 
 This repository, `nba-site-remade`, is the remade version of [Nba_History](https://github.com/royan963/Nba_History).
 
-**Live site:** https://royan963.github.io/nba-site-remade/ (the static build, served by GitHub Pages from `index.html` on `main`).
+**Live site:** https://nba-history.onrender.com/ — the full app (React + API) with every feature below, deployed on Render from this repo. It's on Render's free plan, so the first visit after a quiet spell can take about a minute while it wakes up.
 
-The original site is still online at https://royan963.github.io/Nba_History/.
+Other versions:
+
+- **Static build** (no server, fewer features): https://royan963.github.io/nba-site-remade/, served by GitHub Pages from `index.html` on `main`.
+- **Original site:** https://royan963.github.io/Nba_History/
 
 ```bash
 git clone https://github.com/royan963/nba-site-remade.git
