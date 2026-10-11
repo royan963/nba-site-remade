@@ -191,6 +191,30 @@ mvp_candidates = Table(
     Column('win_pct', Float),
 )
 
+# Champion predictor output (scripts/train_champion.py -> data/champion_model.json):
+# every team's title chances. kind: 'backtest' (after the regular season, from a
+# model that never saw that season), 'prediction' (latest season, no champion
+# yet) or 'preseason' (next season, from the latest one's stats). Model metrics
+# live in meta['champion_model'].
+champion_candidates = Table(
+    'champion_candidates', metadata,
+    Column('season', Integer, primary_key=True),
+    Column('franchise', String(40), primary_key=True),
+    Column('team', String(4), nullable=False),             # abbreviation in the season the stats come from
+    Column('team_name', String(40)),
+    Column('rank', Integer, nullable=False),
+    Column('win_prob', Float, nullable=False),
+    Column('kind', String(10), nullable=False),
+    Column('champion', Boolean),                           # NULL until the season is decided
+    Column('result', String(40)),
+    Column('w', Integer),
+    Column('l', Integer),
+    Column('srs', Float),
+    Column('net', Float),
+    Column('star_id', String(16)),                         # most Win Shares on the roster
+    Column('top_bpm', Float),
+)
+
 # Player archetypes (scripts/train_archetypes.py -> data/archetypes.json): each
 # qualified player-season's role. Role definitions and the trend over time live
 # in meta['archetype_model'].

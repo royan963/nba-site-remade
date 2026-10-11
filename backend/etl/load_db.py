@@ -79,6 +79,7 @@ def build_rows():
                  for rank, (other, score) in enumerate(lst, start=1)]
 
     mvp = read('mvp_model') if (DATA / 'mvp_model.json').exists() else None
+    champ = read('champion_model') if (DATA / 'champion_model.json').exists() else None
     roles = read('archetypes') if (DATA / 'archetypes.json').exists() else None
     MIN_SHARE = 3                                     # percent; smaller shares are noise
     season_mix = [{'player_id': r['player_id'], 'season': r['season'], 'archetype_id': a, 'share': v}
@@ -141,13 +142,14 @@ def build_rows():
         schema.all_stars: as_dicts(read('all_star')),
         schema.draft_picks: as_dicts(read('draft')),
         schema.team_seasons: geo,
+        schema.champion_candidates: as_dicts(champ) if champ else [],
         schema.playoff_series: p_series,
         schema.playoff_teams: p_teams,
         schema.finals_mvp: [r for r in (as_dicts(read('finals_mvp')) if (DATA / 'finals_mvp.json').exists() else []) if r['player_id'] in known],
         schema.league_trends: read('era_trends'),
         schema.league_env: as_dicts(read('league_env')),
         schema.league_shooting: as_dicts(read('league_avg_shooting')),
-    }, dropped, {'mvp': mvp, 'roles': roles, 'proj': proj}
+    }, dropped, {'mvp': mvp, 'roles': roles, 'proj': proj, 'champ': champ}
 
 
 def data_fingerprint() -> str:
@@ -273,7 +275,7 @@ def load_games(conn, known, franchise_of, batch=20000):
 def load(url=None, quiet=False):
     started = time.time()
     tables, dropped, models = build_rows()
-    mvp, roles, proj = models['mvp'], models['roles'], models['proj']
+    mvp, roles, proj, champ = models['mvp'], models['roles'], models['proj'], models['champ']
     engine = make_engine(url)
     latest = max(r['season'] for r in tables[schema.league_trends])
     with engine.begin() as conn:
@@ -299,6 +301,8 @@ def load(url=None, quiet=False):
              if mvp else ''},
             {'key': 'archetype_model', 'value': json.dumps({k: v for k, v in roles.items() if k not in ('columns', 'rows', 'career_mix')})
              if roles else ''},
+            {'key': 'champion_model', 'value': json.dumps({k: v for k, v in champ.items() if k not in ('columns', 'rows')})
+             if champ else ''},
             {'key': 'projection_model', 'value': json.dumps({k: v for k, v in proj.items() if k != 'players'}) if proj else ''},
         ])
     if not quiet:

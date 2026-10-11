@@ -195,6 +195,21 @@ export interface MvpCandidate {
   eligible: boolean; needs_exception: boolean; team: string | null; g: number | null; win_pct: number | null;
   pts: number | null; trb: number | null; ast: number | null; per: number | null; ws: number | null; bpm: number | null; vorp: number | null;
 }
+export interface ChampionMetrics { seasons: number; top1: number; top3: number; baseline_top1: number; power: number }
+export interface ChampionModel {
+  metrics: ChampionMetrics & { trained_through: number };
+  weights: { feature: string; label: string; weight: number }[];
+  misses: { season: number; predicted: string; actual: string }[];
+  latest_season: number; latest_has_champion: boolean;
+  preseason: { season: number; base_season: number; metrics: ChampionMetrics; weights: { feature: string; label: string; weight: number }[] } | null;
+  seasons: number[];
+}
+export interface ChampionTeam {
+  season: number; franchise: string; team: string; team_name: string | null; rank: number; win_prob: number;
+  kind: 'backtest' | 'prediction' | 'preseason'; champion: boolean | null; result: string | null;
+  w: number | null; l: number | null; srs: number | null; net: number | null; star_id: string | null; star: string | null; top_bpm: number | null;
+}
+export interface ChampionSeason { season: number; kind: 'backtest' | 'prediction' | 'preseason'; stats_season: number; teams: ChampionTeam[] }
 export interface MvpSeason { season: number; kind: 'preseason' | 'prediction' | 'backtest'; stats_season: number; candidates: MvpCandidate[] }
 export interface Archetype {
   id: number; key: string; name: string; description: string; rule_based: boolean;

@@ -307,6 +307,9 @@ def main():
     step('Training the MVP model')
     if not run([sys.executable, 'scripts/train_mvp.py']):
         restore('train_mvp.py failed')
+    step('Training the champion model')
+    if not run([sys.executable, 'scripts/train_champion.py']):
+        restore('train_champion.py failed')
     step('Rebuilding index.html')
     if not run([sys.executable, 'build.py']):
         restore('build.py failed')

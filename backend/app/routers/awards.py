@@ -64,6 +64,41 @@ def mvp_season(season: int, response: Response, conn=Depends(get_conn)):
     return {'season': season, 'kind': kind, 'stats_season': stats_season, 'candidates': rows}
 
 
+# ---- champion predictor ----------------------------------------------------------------
+def champion_info(conn) -> dict:
+    raw = conn.execute(select(s.meta.c.value).where(s.meta.c.key == 'champion_model')).scalar()
+    if not raw:
+        raise HTTPException(404, 'Champion model results aren’t in the database. Check that data/champion_model.json exists '
+                                 '(or create it with scripts/train_champion.py), then run python -m backend.etl.load_db '
+                                 'or restart the server.')
+    return json.loads(raw)
+
+
+@router.get('/models/champion', summary='Champion model: accuracy, what it weighs, and the seasons it covers')
+def champion_model(response: Response, conn=Depends(get_conn)):
+    response.headers['Cache-Control'] = 'public, max-age=3600'
+    info = champion_info(conn)
+    cc = s.champion_candidates
+    seasons = [r for (r,) in conn.execute(select(cc.c.season).distinct().order_by(cc.c.season.desc()))]
+    return {**{k: info[k] for k in ('metrics', 'weights', 'misses', 'latest_season', 'latest_has_champion', 'preseason')},
+            'seasons': seasons}
+
+
+@router.get('/models/champion/{season}', summary="Every team's title chances one season, next to what happened")
+def champion_season(season: int, response: Response, conn=Depends(get_conn)):
+    response.headers['Cache-Control'] = 'public, max-age=3600'
+    info = champion_info(conn)
+    cc, p = s.champion_candidates, s.players
+    rows = [dict(r) for r in conn.execute(
+        select(cc, p.c.player.label('star')).outerjoin(p, p.c.player_id == cc.c.star_id)
+        .where(cc.c.season == season).order_by(cc.c.rank)).mappings()]
+    if not rows:
+        raise HTTPException(404, f'No champion predictions for {season}')
+    kind = rows[0]['kind']
+    pre = info.get('preseason')
+    return {'season': season, 'kind': kind, 'stats_season': pre['base_season'] if kind == 'preseason' else season, 'teams': rows}
+
+
 # ---- player archetypes ---------------------------------------------------------------
 def archetype_info(conn) -> dict:
     raw = conn.execute(select(s.meta.c.value).where(s.meta.c.key == 'archetype_model')).scalar()

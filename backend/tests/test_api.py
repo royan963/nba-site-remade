@@ -253,6 +253,33 @@ def test_2026_awards(client):
     assert any(a['season'] == 2026 and a['award'] == 'nba roy' and a['winner'] for a in get(client, '/api/v1/players/flaggco01/honors')['awards'])
 
 
+# ---- champion model -------------------------------------------------------------------
+def test_champion_model_card(client):
+    m = get(client, '/api/v1/models/champion')
+    assert m['metrics']['seasons'] >= 70 and m['metrics']['top1'] > m['metrics']['baseline_top1']
+    assert m['weights'][0]['label'] and m['misses'] and all(x['predicted'] and x['actual'] for x in m['misses'])
+
+
+def test_champion_backtest_season(client):
+    r = get(client, '/api/v1/models/champion/1996')
+    assert r['kind'] == 'backtest'
+    champ = next(t for t in r['teams'] if t['champion'])
+    assert champ['team'] == 'CHI' and champ['w'] == 72 and champ['rank'] == 1 and champ['star'] == 'Michael Jordan'
+    probs = [t['win_prob'] for t in r['teams']]
+    assert abs(sum(probs) - 1) < 0.01 and probs == sorted(probs, reverse=True)       # every team listed, odds sum to 1
+    assert sum(1 for t in r['teams'] if t['champion']) == 1 and all(t['result'] for t in r['teams'])
+
+
+def test_champion_preseason(client):
+    m = get(client, '/api/v1/models/champion')
+    assert m['latest_has_champion'] and m['preseason']['season'] == m['latest_season'] + 1 and m['seasons'][0] == m['preseason']['season']
+    r = get(client, f"/api/v1/models/champion/{m['preseason']['season']}")
+    assert r['kind'] == 'preseason' and r['stats_season'] == m['latest_season']
+    assert all(t['champion'] is None and t['result'] is None for t in r['teams'])
+    assert abs(sum(t['win_prob'] for t in r['teams']) - 1) < 0.01 and r['teams'][0]['win_prob'] < 0.6
+    get(client, '/api/v1/models/champion/1900', status=404)
+
+
 def test_mvp_unknown_season(client):
     get(client, '/api/v1/models/mvp/1900', status=404)
 

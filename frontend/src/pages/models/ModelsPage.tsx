@@ -1,11 +1,13 @@
 import { NavLink, Navigate, useParams } from 'react-router-dom';
 import { SectionHead } from '../../components/ui';
 import { MvpPage } from './MvpPage';
+import { ChampionPage } from './ChampionPage';
 import { ArchetypesPage } from './ArchetypesPage';
 import { ProjectionsPage } from './ProjectionsPage';
 
 const MODELS = [
   { slug: 'mvp', label: 'MVP Predictor' },
+  { slug: 'champion', label: 'Champion Predictor' },
   { slug: 'archetypes', label: 'Player Archetypes' },
   { slug: 'projections', label: 'Career Projections' },
 ];
@@ -22,6 +24,7 @@ export default function ModelsPage() {
         ))}
       </nav>
       {model === 'mvp' && <MvpPage />}
+      {model === 'champion' && <ChampionPage />}
       {model === 'archetypes' && <ArchetypesPage />}
       {model === 'projections' && <ProjectionsPage />}
     </section>
