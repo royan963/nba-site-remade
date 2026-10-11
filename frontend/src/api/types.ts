@@ -123,7 +123,7 @@ export interface LeagueTrend {
 
 export interface LeagueShooting { season: number; [key: string]: number | null }
 
-export interface Meta { first_season: number; latest_season: number; loaded_at: string; similarity_features: string[]; players: number; playoffs_through: number; series_through: number }
+export interface Meta { first_season: number; latest_season: number; loaded_at: string; similarity_features: string[]; players: number; playoffs_through: number; series_through: number; playoffs_partial?: number[] }
 
 export type Align = 'experience' | 'age' | 'calendar';
 export type Basis = 'raw' | 'per100' | 'index';
@@ -292,7 +292,7 @@ export interface PlayerPlayoffs {
   player_id: string;
   finals_mvp_seasons: number[];
   titles: { season: number; team: string; franchise: string; team_name: string | null }[];
-  seasons: (PlayoffLine & { season: number; team: string; team_name: string | null; result: string | null })[];
+  seasons: (PlayoffLine & { season: number; team: string; team_name: string | null; result: string | null; source?: 'box' | 'game_log' | 'series' })[];
   career: PlayoffLine | null;
 }
 export interface TeamPlayoffs {

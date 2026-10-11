@@ -123,7 +123,7 @@ def team_results(ser: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(out)
 
 
-PLAYER_COLS = ['player_id', 'season', 'team', 'g', 'mp'] + COUNT_STATS + [f'g_{s}' for s in REC_STATS]
+PLAYER_COLS = ['player_id', 'season', 'team', 'g', 'mp'] + COUNT_STATS + [f'g_{s}' for s in REC_STATS] + ['source']
 SERIES_COLS = ['season', 'round_name', 'round_label', 'rff', 'team_a', 'team_b', 'wins_a', 'wins_b', 'winner', 'games', 'start', 'end', 'complete']
 TEAM_COLS = ['season', 'team', 'series_won', 'series_lost', 'games_won', 'games_lost', 'result', 'rff_deepest', 'champion']
 
@@ -159,7 +159,10 @@ def main_frozen():
     ser = pd.concat([ser_old[ser_old['season'] < SLICE_FROM], deocheng_series(DC)], ignore_index=True)
     teams = team_results(ser)
     champs = ser[ser['rff'] == 0].set_index('season')['winner']
-    out = load_json_frame('player_playoffs')                    # player stats come only from the box scores
+    out = load_json_frame('player_playoffs')
+    if 'source' not in out:
+        out['source'] = 'box'
+    out = out[out['source'] == 'box']                           # rebuilt below from the newer sources
     last_box = int(out['season'].max())
     titles = load_json_frame('player_titles')
     titles = titles[titles['season'] <= last_box]
@@ -168,6 +171,7 @@ def main_frozen():
            for pid in srows[(srows.season_end == season) & (srows.team_abbr == champ)]['player_id'].unique()]
     titles = pd.concat([titles, pd.DataFrame(new)], ignore_index=True)
     titles, rec = reconcile_titles(titles, dict(champs), DC)
+    out = extend_player_playoffs(out, DC)
     print(f'frozen base through {last_box}; series {ser.season.min()}-{ser.season.max()}; champions '
           + ', '.join(f"{y} {champs[y]}" for y in sorted(champs.index)[-3:]))
     print(f'rings: {rec["equal"]} of {rec["compared"]} players match official counts; unresolved {len(rec["unresolved"])}; over-credited {rec["over"]}')
@@ -235,7 +239,7 @@ def main():
         out[f'g_{s}'] = grp[s].count()
     out = out.reset_index().rename(columns={'Player Reference': 'player_id', 'Team': 'team'})
     out['mp'] = out['mp'].round(1)
-    cols = ['player_id', 'season', 'team', 'g', 'mp'] + COUNT_STATS + [f'g_{s}' for s in REC_STATS]
+    out['source'] = 'box'
 
     if DC:
         ext_pp, srows = deocheng_player_playoffs(DC)
@@ -247,8 +251,7 @@ def main():
               f'(gonzalo {len(mine)}, deocheng {len(theirs)}); games equal {(mine.loc[both, "g"] == theirs.loc[both, "g"]).mean():.1%}, '
               f'points equal {(mine.loc[both, "pts"] == theirs.loc[both, "pts"]).mean():.1%}, rebounds equal '
               f'{((mine.loc[both, "trb"] == theirs.loc[both, "trb"]) | mine.loc[both, "trb"].isna()).mean():.1%}')
-        # NOT added: the series table omits many rotation players (58 of 214 in 2024, including Towns and Mobley), so
-        # 2025-26 player playoff stats stay unavailable rather than wrong. Its series-level data is reliable.
+        out = extend_player_playoffs(out, DC)
         # champions' rosters for the new seasons: everyone with a series row for the champion
         new_titles = []
         for season, champ in champs.items():
@@ -354,6 +357,63 @@ def deocheng_player_playoffs(dc: Path):
         agg[f'g_{stat}'] = agg['g']
     return agg, s
 
+
+def extend_player_playoffs(out: pd.DataFrame, dc: Path) -> pd.DataFrame:
+    """Player playoff seasons after the box scores end (2023-24):
+      - from this project's game logs (data/games, built by prep_games.py) for seasons whose every playoff game is
+        complete, i.e. its players' points add up to the final score (source 'game_log'). They have no minutes, and
+        games rebuilt from play-by-play have no assists or offensive/defensive rebound split; per-game averages use
+        only the games where a stat exists (g_ast etc.), like older eras.
+      - the Deo Cheng series table (source 'series') is accurate for the players it lists (2024: 92% match the box scores
+        exactly, the rest are a Game 7 the box scores lack; 2026: points match the game logs for every player) and has minutes,
+        so its lines are preferred. It leaves out some rotation players: with game logs, those come from the logs; without
+        (2024-25), that season is partial.
+    """
+    last = int(out['season'].max())
+    series_pp, _ = deocheng_player_playoffs(dc)
+    added = []
+    seasons = sorted(set(series_pp['season']) | {int(f.name[6:10]) for f in (DATA / 'games').glob('games_*.csv.gz')})
+    for season in [s for s in seasons if s > last]:
+        gf, pf = DATA / 'games' / f'games_{season}.csv.gz', DATA / 'games' / f'player_games_{season}.csv.gz'
+        po = pd.DataFrame()
+        if gf.exists() and pf.exists():
+            g = pd.read_csv(gf)
+            po = g[g['playoffs'].astype(str) == 'True']
+        if len(po) and po['complete'].astype(str).eq('True').all():
+            pg = pd.read_csv(pf, low_memory=False)
+            x = pg[pg['game_ref'].isin(po['game_ref']) & pg['pts'].notna()]
+            grp = x.groupby(['player_id', 'team'])
+            t = grp[['mp'] + COUNT_STATS].sum(min_count=1)
+            t['g'] = grp.size()
+            for s in REC_STATS:
+                t[f'g_{s}'] = grp[s].count()
+            t = t.reset_index().assign(season=season, source='game_log')
+            mine = t.set_index(['player_id', 'team'])
+            theirs = series_pp[series_pp['season'] == season].set_index(['player_id', 'team'])
+            both = mine.index.intersection(theirs.index)
+            pts_equal = (mine.loc[both, 'pts'] == theirs.loc[both, 'pts']).mean()
+            print(f'{season} playoffs from game logs: {len(po)} complete games, {len(t)} players; vs. the series table '
+                  f'({len(theirs)} players): games equal {(mine.loc[both, "g"] == theirs.loc[both, "g"]).mean():.1%}, '
+                  f'points equal {pts_equal:.1%}')
+            if pts_equal < 0.98:
+                raise SystemExit(f'{season}: game-log playoff points disagree with the series table for {1 - pts_equal:.1%} of players')
+            # The series table's lines are right for the players it lists and have minutes and every game played (the game
+            # logs skip bench appearances with no stats), so they're used where they exist; the game logs fill in the
+            # players it leaves out.
+            from_series = series_pp[series_pp['season'] == season].assign(source='series')
+            rest = t[~t.set_index(['player_id', 'team']).index.isin(from_series.set_index(['player_id', 'team']).index)]
+            print(f'   using {len(from_series)} series-table lines and {len(rest)} game-log lines')
+            added += [from_series, rest]
+        elif season in set(series_pp['season']):
+            t = series_pp[series_pp['season'] == season].assign(source='series')
+            print(f'{season} playoffs: no complete game logs ({len(po)} games); {len(t)} players from the series table (partial)')
+            added.append(t)
+    if not added:
+        return out
+    new = pd.concat(added, ignore_index=True)
+    if 'mp' in new:
+        new['mp'] = new['mp'].round(1)
+    return pd.concat([out, new[PLAYER_COLS]], ignore_index=True)
 
 def reconcile_titles(titles: pd.DataFrame, champs: dict, dc: Path):
     """Credit rostered players the box scores miss, up to the official count, using regular-season team membership."""

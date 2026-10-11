@@ -304,6 +304,8 @@ def load(url=None, quiet=False):
             {'key': 'similarity_features', 'value': json.dumps(schema.STYLE_FEATURES)},
             {'key': 'data_fingerprint', 'value': data_fingerprint()},
             {'key': 'playoffs_through', 'value': str(max((r['season'] for r in tables[schema.player_playoffs]), default=0))},      # player playoff stats
+            # seasons whose player playoff stats come only from series totals, which leave out some players
+            {'key': 'playoffs_partial', 'value': json.dumps(sorted({r['season'] for r in tables[schema.player_playoffs]} - {r['season'] for r in tables[schema.player_playoffs] if r.get('source') != 'series'}))},
             {'key': 'series_through', 'value': str(max((r['season'] for r in tables[schema.playoff_series]), default=0))},         # series, champions, rings
             {'key': 'mvp_model', 'value': json.dumps({k: v for k, v in mvp.items() if k not in ('columns', 'rows')})
              if mvp else ''},

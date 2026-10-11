@@ -45,7 +45,7 @@ def player_playoffs(player_id: str, conn=Depends(get_conn)):
     results = {(r.season, r.team): r.result for r in conn.execute(
         select(s.playoff_teams.c.season, s.playoff_teams.c.team, s.playoff_teams.c.result).where(s.playoff_teams.c.season.in_({r['season'] for r in rows})))}
     seasons = [{'season': r['season'], 'team': r['team'], 'team_name': names.get((r['season'], r['team'])),
-                'result': results.get((r['season'], r['team'])), **lines(r)} for r in rows]
+                'result': results.get((r['season'], r['team'])), 'source': r.get('source') or 'box', **lines(r)} for r in rows]
     totals = {k: sum(r[k] for r in rows if r[k] is not None) if any(r[k] is not None for r in rows) else None
               for k in ('g', 'mp', 'fg', 'fga', 'x3p', 'x3pa', 'ft', 'fta', 'trb', 'ast', 'stl', 'blk', 'pts', 'g_mp', 'g_trb', 'g_ast', 'g_stl', 'g_blk')}
     titles = [dict(r) for r in conn.execute(select(s.player_titles.c.season, s.player_titles.c.team, s.player_titles.c.franchise)

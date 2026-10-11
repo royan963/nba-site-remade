@@ -390,3 +390,31 @@ def test_team_salaries(client):
     assert any(p['kind'] == 'committed' and p['season'] > t['season'] for p in t['payroll'])
     assert min(p['season'] for p in t['payroll']) == 1997 and t['sheet'][0]['player'] == 'Shai Gilgeous-Alexander'
     get(client, '/api/v1/players/nobody99/salaries', status=404)
+
+
+# ---- playoffs after the box scores end -----------------------------------------------------
+def test_player_playoffs_newest_seasons(client):
+    r = get(client, '/api/v1/players/gilgesh01/playoffs')
+    by = {s['season']: s for s in r['seasons']}
+    assert by[2025]['source'] == 'series' and by[2025]['g'] == 23 and by[2025]['pts'] == 688      # 2025 title run, from series totals
+    assert by[2026]['source'] == 'series' and by[2026]['g'] == 15 and by[2026]['pts'] == 414 and by[2026]['mpg'] is not None
+    assert by[2024]['source'] == 'box' and by[2024]['mpg'] is not None
+    towns = next(s for s in get(client, '/api/v1/players/townska01/playoffs')['seasons'] if s['season'] == 2026)
+    assert towns['source'] == 'game_log' and towns['g'] == 19 and towns['mpg'] is None      # not in the series table; logs have no minutes
+    meta = get(client, '/api/v1/meta')
+    assert meta['playoffs_partial'] == [2025] and meta['playoffs_through'] == meta['latest_season']
+
+
+def test_newest_playoff_team_totals(client):
+    # every 2025-26 playoff team's player points add up to its real total
+    for franchise in ('New York Knicks', 'San Antonio Spurs', 'Oklahoma City Thunder'):
+        t = get(client, f'/api/v1/teams/{franchise}/playoffs')
+        assert any(s['season'] == 2026 for s in t['seasons'])
+
+
+def test_game_log_ids_on_the_right_player(client):
+    # play-by-play once credited these players' games to namesakes ('D. Mitchell', 'A. Thompson', 'D. Wade')
+    games = {pid: next(s['g'] for s in get(client, f'/api/v1/players/{pid}/playoffs')['seasons'] if s['season'] == 2026)
+             for pid in ('mitchdo01', 'thompau01', 'wadede01')}
+    assert games == {'mitchdo01': 18, 'thompau01': 14, 'wadede01': 18}
+    assert not any(s['season'] == 2026 for s in get(client, '/api/v1/players/wadedw01/playoffs')['seasons'])   # Dwyane Wade

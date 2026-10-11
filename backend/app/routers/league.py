@@ -1,4 +1,6 @@
 """League-wide endpoints and dataset metadata."""
+import json
+
 from fastapi import APIRouter, Depends, Response
 from sqlalchemy import func, select
 
@@ -25,6 +27,7 @@ def meta(response: Response, conn=Depends(get_conn)):
         'similarity_features': json.loads(m['similarity_features']),
         'players': conn.execute(select(func.count()).select_from(s.players)).scalar(),
         'playoffs_through': int(m.get('playoffs_through') or 0),
+        'playoffs_partial': json.loads(m.get('playoffs_partial') or '[]'),
         'series_through': int(m.get('series_through') or 0),
     }
 

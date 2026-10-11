@@ -100,4 +100,5 @@ def test_titles_appear_in_honors_and_comparisons(client):
 
 def test_playoff_coverage_is_reported(client):
     m = get(client, '/api/v1/meta')
-    assert m['playoffs_through'] == 2024 and m['series_through'] == m['latest_season']      # player stats end earlier than series results
+    assert m['playoffs_through'] == m['series_through'] == m['latest_season']
+    assert m['playoffs_partial'] == [2025]          # no box scores for the 2024-25 playoffs: series totals, some players missing

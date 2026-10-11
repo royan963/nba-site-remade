@@ -335,6 +335,9 @@ player_playoffs = Table(
     *_i('fg', 'fga', 'x3p', 'x3pa', 'ft', 'fta', 'orb', 'drb', 'trb', 'ast', 'stl', 'blk', 'tov', 'pf', 'pts'),
     # games in which the stat was recorded (older eras lack some), so per-game averages stay honest
     *_i('g_mp', 'g_trb', 'g_ast', 'g_stl', 'g_blk'),
+    # 'box' (box scores, through 2023-24), 'game_log' (this project's game logs: no minutes), or 'series'
+    # (series totals: right for the players listed, but some players are missing that season)
+    Column('source', String(10)),
 )
 player_titles = Table(
     'player_titles', metadata,

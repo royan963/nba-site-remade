@@ -170,6 +170,11 @@ with sync_playwright() as p:
     open_page(page, '/players/jordami01')
     check('6\u00d7 NBA champion' in page.locator('#pc-titles').inner_text() and '1998' in page.locator('#pc-titles').inner_text(), 'player header shows championships')
     check(page.locator('#pc-playoffs-table tbody tr').count() >= 14 and 'Champion' in page.locator('#pc-playoffs-table').inner_text(), 'playoff stats table with results')
+    open_page(page, '/players/gilgesh01')
+    page.wait_for_selector('#pc-playoffs-table', timeout=15000)
+    seasons = [r.split('\t')[0].strip('* ') for r in page.locator('#pc-playoffs-table tbody tr').all_inner_texts()]
+    check('2025' in seasons and '2026' in seasons and page.locator('#pc-playoffs-sources').count() == 1,
+          'newest playoff seasons listed, with where their stats come from')
     page.click('#pc-season-type >> text=Playoffs'); page.wait_for_timeout(600)
     check('type=playoffs' in page.url and page.evaluate("document.querySelector('[data-testid=player-chart]').chart.data.datasets[0].label").endswith('(playoffs)'), 'career chart switches to playoffs')
     open_page(page, '/teams/boston-celtics')

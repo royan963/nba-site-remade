@@ -120,7 +120,8 @@ def load_gamelog(dc1: Path, dim: pd.DataFrame):
         'x3pa': num('fga3').combine_first(num('tpa')), 'ft': num('ft').combine_first(num('ftm')), 'fta': num('fta'),
         'orb': num('orb').combine_first(num('oreb')), 'drb': num('drb').combine_first(num('dreb')), 'trb': num('trb').combine_first(num('reb')),
         'ast': num('ast'), 'stl': num('stl'), 'blk': num('blk'), 'tov': num('tov'), 'pf': num('pf'), 'pts': num('pts'),
-        'pm': num('plus_minus'), 'src': 'dc_log', 'season': num('season'), 'player_name': g['player_name'] if 'player_name' in g else None})
+        'pm': num('plus_minus'), 'src': 'dc_log', 'season': num('season'), 'player_name': g['player_name'] if 'player_name' in g else None,
+        'nba_id': num('nba_player_id')})
     out['game_ref'] = out['game_ref'].map(norm_ref)
     out = out[out['pts'].notna() & out['player_id'].notna() & out['game_ref'].notna()]
     counting = out[['fg', 'fga', 'ft', 'fta', 'trb', 'ast', 'stl', 'blk', 'tov', 'pf', 'pts']].fillna(0).sum(axis=1)
@@ -217,10 +218,68 @@ def our_roster(seasons) -> pd.Series:
     return ps['player_id']
 
 
-def pbp_rebuild(p: pd.DataFrame, extra_names: pd.Series = None, roster: pd.Series = None) -> pd.DataFrame:
+def our_stints(seasons) -> set:
+    """(player_id, team) for every regular-season stint in these seasons, from this project's own season data."""
+    f = DATA / 'player_seasons.json'
+    if not f.exists():
+        return set()
+    d = json.loads(f.read_text())
+    ps = pd.DataFrame(d['rows'], columns=d['columns'])
+    ps = ps[ps['season'].isin(seasons) & ~ps['team'].isin(['2TM', '3TM', '4TM', '5TM'])]
+    return set(zip(ps['player_id'], ps['team']))
+
+
+def fix_log_ids(log: pd.DataFrame, seasons) -> pd.DataFrame:
+    """The source game log carries the same wrong ids as its play-by-play ('AJ Green' as A.C. Green, 'Ronald Holland II' as
+    Robert Woodard). A row whose player isn't on that team in this project's season data is re-resolved by full name on the
+    team's roster; one that can't be, for a player who didn't play that season at all, is dropped."""
+    stints = our_stints(seasons)
+    f = DATA / 'player_seasons.json'
+    if not stints or not f.exists():
+        return log
+    d = json.loads(f.read_text())
+    ps = pd.DataFrame(d['rows'], columns=d['columns'])
+    ps = ps[ps['season'].isin(seasons) & ~ps['team'].isin(['2TM', '3TM', '4TM', '5TM'])].assign(key=lambda x: x['player'].map(name_key))
+    ps = ps.drop_duplicates(['key', 'team', 'player_id'])
+    full = ps[~ps.duplicated(['key', 'team'], keep=False)].set_index(['key', 'team'])['player_id']
+    log = log.copy()
+    wrong = pd.Series([(pid, t) not in stints for pid, t in zip(log['player_id'], log['team'])], index=log.index)
+    by_team = {k: g for k, g in ps.assign(toks=ps['key'].str.split()).groupby('team')}
+
+    def resolve(name, team):
+        key = name_key(name)
+        if key is None:
+            return None
+        pid = full.get((key, team))
+        if pid is not None:
+            return pid
+        toks, g = key.split(), by_team.get(team)                  # a nickname: Ronald/Ron Holland, same team, same last name
+        if g is None or len(toks) < 2:
+            return None
+        hits = {pid for pid, pt in zip(g['player_id'], g['toks']) if len(pt) >= 2 and pt[-1] == toks[-1] and pt[0][:3] == toks[0][:3]}
+        return hits.pop() if len(hits) == 1 else None
+    fix = pd.Series([resolve(n, t) for n, t in zip(log.loc[wrong, 'player_name'], log.loc[wrong, 'team'])], index=log.index[wrong], dtype='object')
+    log.loc[wrong, 'player_id'] = fix
+    log = log[log['player_id'].notna()]
+    # a corrected row can land on a player who already has a row in that game; that game's log can't be trusted for him,
+    # so both rows go and the play-by-play rebuild decides
+    dup = log.duplicated(['game_ref', 'player_id'], keep=False)
+    print(f'  game-log ids not on their team: {int(wrong.sum()):,} rows; re-resolved by name: {int(fix.notna().sum()):,}; dropped: {int(fix.isna().sum()):,}; '
+          f'duplicates after re-resolving: {int(dup.sum()):,}')
+    return log[~dup]
+
+
+def pbp_rebuild(p: pd.DataFrame, extra_names: pd.Series = None, roster: pd.Series = None, on_team: set = None,
+                fix_roster: pd.Series = None, nba_map: pd.Series = None) -> pd.DataFrame:
     """Counting stats per (game, player) from play-by-play events. Steal/block rows carry only names, so names are
-    resolved to ids within the game (ambiguous names are dropped)."""
+    resolved to ids within the game (ambiguous names are dropped). on_team: (player_id, team) pairs known for the season;
+    an id that isn't on the team it played for is re-resolved by name against that team's roster."""
     p = p.copy()
+    if nba_map is not None and len(nba_map) and 'playerid' in p:
+        # the NBA's own player id beats the source's Basketball-Reference id (which can be a namesake) and the name
+        # (which can be ambiguous: Jalen and Jaylin Williams are both 'J. Williams' on the same team)
+        mapped = pd.to_numeric(p['playerid'], errors='coerce').map(nba_map)
+        p['br_player_id'] = mapped.combine_first(p['br_player_id'])
     p['player'] = p['player'].map(name_key)                 # spelling-proof from here on
     known = p[p['br_player_id'].notna() & p['player'].notna()][['game_ref', 'player', 'br_player_id']].drop_duplicates()
     amb = known.groupby(['game_ref', 'player'])['br_player_id'].nunique()
@@ -238,6 +297,19 @@ def pbp_rebuild(p: pd.DataFrame, extra_names: pd.Series = None, roster: pd.Serie
         need = p['pid'].isna() & p['player'].notna()
         tm = p['team'].combine_first(p['current_team']).map(abbr)
         p.loc[need, 'pid'] = pd.Series([roster.get(k) for k in zip(p.loc[need, 'player'], tm[need])], index=p.index[need])
+    if fix_roster is not None and on_team:
+        # The source's own ids are sometimes the wrong player with the same abbreviated name ('D. Mitchell' -> a Mitchell from
+        # decades ago, 'A. Thompson' -> Amen instead of Ausar). Points still add up, so the score check can't catch it.
+        tm = p['team'].combine_first(p['current_team']).map(abbr)
+        wrong = p['pid'].notna() & p['player'].notna() & tm.notna() & pd.Series(
+            [(pid, t) not in on_team for pid, t in zip(p['pid'], tm)], index=p.index)
+        # re-resolve on our own rosters only; if that's impossible (an ambiguous 'J. Williams'), drop the id, so the game shows
+        # no player stats rather than crediting the wrong player
+        fix = pd.Series([fix_roster.get(k) for k in zip(p.loc[wrong, 'player'], tm[wrong])], index=p.index[wrong], dtype='object')
+        p.loc[fix.index, 'pid'] = fix
+        if wrong.any():
+            print(f'  play-by-play ids not on their team: {wrong.sum():,} event rows; re-resolved by name on the roster: {int(fix.notna().sum()):,}; '
+                  f'dropped: {int(fix.isna().sum()):,}')
     et = p['event_type'].astype('string').str.lower().fillna('')
     av = p['action_verb'].astype('string').str.lower().fillna('')
     desc = p['description'].astype('string').str.lower().fillna('')
@@ -332,15 +404,23 @@ def team_sums_ok(df: pd.DataFrame, truth: pd.Series) -> pd.Series:
 def assemble(log: pd.DataFrame, p: pd.DataFrame, truth: pd.Series):
     """Per game: the game log if its points add up; else the play-by-play rebuild (when its score is complete), upgraded with the
     game-log row for each player whose points and rebounds agree. Returns player rows, the games each route covered, and the scores."""
+    log = fix_log_ids(log, sorted(set(pd.to_numeric(p['season'], errors='coerce').dropna().astype(int))))
     sc = pbp_scores(p)
     pbp_ok = pd.Index([g for g, h, a in zip(sc.index, sc['home_pts'], sc['away_pts']) if tuple(sorted((int(h), int(a)))) == truth.get(g)])
     log_ok = team_sums_ok(log, truth)
     log_games = log_ok[log_ok].index
     take_log = log[log['game_ref'].isin(log_games)][PG_COLS]
     todo = pbp_ok.difference(log_games)
-    roster = pd.concat([season_roster(p), log_season_roster(log), our_roster(sorted(set(pd.to_numeric(p['season'], errors='coerce').dropna().astype(int))))])
+    # our own Basketball-Reference rosters first: the play-by-play's ids are the ones that can be wrong
+    roster = pd.concat([our_roster(sorted(set(pd.to_numeric(p['season'], errors='coerce').dropna().astype(int)))), log_season_roster(log), season_roster(p)])
     roster = roster[~roster.index.duplicated(keep='first')]
-    reb = pbp_rebuild(p[p['game_ref'].isin(todo)], log_name_map(log), roster)
+    seasons = sorted(set(pd.to_numeric(p['season'], errors='coerce').dropna().astype(int)))
+    on_team = our_stints(seasons)                   # not the game log's pairs: it shares the play-by-play's wrong ids
+    # NBA id -> our id, from game-log rows that passed the roster check; ids seen with two players are left out
+    v = log[[(pid, tm) in on_team for pid, tm in zip(log['player_id'], log['team'])]].dropna(subset=['nba_id'])
+    pairs = v[['nba_id', 'player_id']].drop_duplicates()
+    nba_map = pairs[~pairs['nba_id'].duplicated(keep=False)].set_index('nba_id')['player_id']
+    reb = pbp_rebuild(p[p['game_ref'].isin(todo)], log_name_map(log), roster, on_team, our_roster(seasons), nba_map)
     reb = reb[reb['team'].notna()]
     j = reb.merge(log.drop(columns=['team', 'src', 'player_name']), on=['game_ref', 'player_id'], how='left', suffixes=('', '_log'), indicator=True)
     both = j['_merge'] == 'both'
@@ -368,6 +448,11 @@ def assemble(log: pd.DataFrame, p: pd.DataFrame, truth: pd.Series):
     swap_rows = as_log(j[conflict & j['game_ref'].isin(use_swap)])
     keep_rows = rebuilt[conflict.values & ~j['game_ref'].isin(use_swap).values]
     pg = pd.concat([take_log, stage1, swap_rows, keep_rows], ignore_index=True)
+    if on_team:                                     # last check: a player credited to a team he wasn't on that season
+        stray = pd.Series([(pid, tm) not in on_team for pid, tm in zip(pg['player_id'], pg['team'])], index=pg.index)
+        if stray.any():
+            print(f'  removed {int(stray.sum())} player-game rows for players not on that team: {sorted(set(pg.loc[stray, "player_id"]))[:8]}')
+            pg = pg[~stray]
     complete = team_sums_ok(pg, truth)
     pg = pg[pg['game_ref'].isin(complete[complete].index)]           # a game whose points don't add up shows no player stats
     return pg, complete, log_ok, sc, pbp_ok
@@ -381,7 +466,16 @@ def build_deocheng(dc1: Path, dc2: Path, seasons):
     log = log[log['season'].isin(seasons) & log['game_ref'].isin(real['game_id'])].drop(columns='season')
     p = load_pbp(dc2, dim, seasons)
     p = p[p['game_ref'].isin(real['game_id'])]
-    pg, complete, log_ok, sc, pbp_ok = assemble(log, p, truth)
+    # one season at a time, so a player's roster check uses that season's teams only (Desmond Bane was a Grizzly in
+    # 2024-25, not in 2025-26)
+    parts = []
+    for season in seasons:
+        refs = set(real.loc[real['season'] == season, 'game_id'])
+        parts.append(assemble(log[log['game_ref'].isin(refs)], p[p['game_ref'].isin(refs)], truth[truth.index.isin(refs)]))
+    pg = pd.concat([x[0] for x in parts], ignore_index=True)
+    complete, log_ok = pd.concat([x[1] for x in parts]), pd.concat([x[2] for x in parts])
+    sc = pd.concat([x[3] for x in parts])
+    pbp_ok = parts[0][4].append([x[4] for x in parts[1:]]) if parts else pd.Index([])
     teams = pg.groupby('game_ref')['team'].agg(lambda t: sorted(set(t)))
     max_period = p.groupby('game_ref')['period'].max()
     team_pts = pg.groupby(['game_ref', 'team'])['pts'].sum()

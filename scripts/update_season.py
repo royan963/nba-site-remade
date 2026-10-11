@@ -294,18 +294,19 @@ def main():
         step('Matching salaries and contracts to players')
         if not run([sys.executable, 'scripts/prep_salaries.py', str(d1)]):
             restore('prep_salaries.py failed (too few salaries matched a player, or a payroll didn\'t add up)')
-        step('Rebuilding playoffs and rings' + ('' if (RAW_GAMES / 'schedule.csv').exists() else ' (box scores through 2023-24 kept as committed)'))
-        if not run([sys.executable, 'scripts/prep_playoffs.py', str(RAW_GAMES), '--deocheng', str(d1)]):
-            restore('prep_playoffs.py failed')
-        step('Checking Finals MVPs against official counts')
-        if not run([sys.executable, 'scripts/build_finals_mvp.py', str(d1)]):
-            restore('build_finals_mvp.py failed (a Finals MVP did not match the official counts)')
+        # game logs first: the newest seasons' player playoff stats are built from them
         step('Rebuilding game-by-game data for the newest seasons')
         cmd = [sys.executable, 'scripts/prep_games.py', '--build', '--min-complete', str(MIN_COMPLETE)]
         if (RAW_GAMES / 'schedule.csv').exists():
             cmd += ['--base', str(RAW_GAMES)]
         if not run(cmd + [str(d1), str(d2)]):
             restore('prep_games.py failed or a season fell below the coverage minimum')
+        step('Rebuilding playoffs and rings' + ('' if (RAW_GAMES / 'schedule.csv').exists() else ' (box scores through 2023-24 kept as committed)'))
+        if not run([sys.executable, 'scripts/prep_playoffs.py', str(RAW_GAMES), '--deocheng', str(d1)]):
+            restore('prep_playoffs.py failed')
+        step('Checking Finals MVPs against official counts')
+        if not run([sys.executable, 'scripts/build_finals_mvp.py', str(d1)]):
+            restore('build_finals_mvp.py failed (a Finals MVP did not match the official counts)')
     # after the Deo Cheng step, so the newest season's MVP vote is in before training
     step('Training the MVP model')
     if not run([sys.executable, 'scripts/train_mvp.py']):
