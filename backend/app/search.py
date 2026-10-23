@@ -52,6 +52,14 @@ POSITIONS = [
 DECADE_WORDS = {'forties': 1940, 'fifties': 1950, 'sixties': 1960, 'seventies': 1970, 'eighties': 1980, 'nineties': 1990,
                 'two thousands': 2000, 'aughts': 2000, 'twenty tens': 2010, 'teens': 2010, 'twenties': 2020}
 CAREER_WORDS = ['all-time', 'all time', 'of all time', 'career', 'careers', 'in history', 'in nba history', 'history', 'ever']
+# "average", "per game", "ppg": the question wants the per-game number, not a career total
+PER_GAME_RE = re.compile(r'\b(?:averag(?:e|ed|es|ing)|avg|per game|a game|per night|each game|ppg|rpg|apg|spg|bpg|mpg)\b')
+# a titles question is about a team unless it asks who/which player or for a ranking
+TITLE_RANKING_RE = re.compile(r'\b(?:who|whom|which|players?|most|leaders?|leading|top|best)\b')
+# questions about a team itself (its record, payroll, best seasons) rather than its players
+RECORD_RE = re.compile(r'\b(?:records?|wins?|won|losses|loss|lost|win-loss|win loss|standings|winning percentage|win percentage)\b|\bhow many games\b')
+PAYROLL_RE = re.compile(r'\b(?:payroll|team salary|salary cap|cap space)\b')
+BEST_TEAM_RE = re.compile(r'\b(?:best|worst|greatest|top)\s+teams?\b|\b(?:best|worst|greatest)\s+(?:seasons?|records?)\b|\b(?:most|fewest)\s+wins\b')
 GAME_WORDS = ['in a single game', 'in one game', 'in a game', 'single game', 'single-game', 'one game', 'performances', 'performance']
 GAME_PATTERN = r'\b(?:in|during)\s+(?:a|one|any|an)\s+(?:single\s+|playoff\s+|postseason\s+|regular[- ]season\s+)?game\b'
 PLAYOFF_WORDS = ['in the playoffs', 'in playoff history', 'playoff history', 'postseason', 'playoffs', 'playoff']
@@ -106,6 +114,11 @@ class Query:
     ignored: list = field(default_factory=list)    # words that didn't match anything
     stat_given: bool = False                       # False when we fell back to ranking by Win Shares
     superlative: bool = False                      # "best", "greatest", "top": rank even with no stat named
+    per_game: bool = False                         # "average", "per game", "ppg": the per-game number, not a total
+    per_game_used: bool = False                    # set by the router when a career query was ranked per game
+    team_titles: bool = False                      # "how many rings do the Lakers have": a question about the team
+    team_intent: str | None = None                 # record | best | payroll: a question about a team, not its players
+    team_by_wins: bool = False                     # "most wins": rank team seasons by wins instead of win percentage
 
     @property
     def understood(self) -> bool:
@@ -163,6 +176,7 @@ def parse(text: str, teams: dict | None = None, archetypes: dict | None = None, 
     q = Query(text=text)
     t = _Text(_norm(text))
     q.superlative = re.search(r'\b(best|greatest|top|most valuable|worst)\b', t.s) is not None
+    q.per_game = PER_GAME_RE.search(t.s) is not None
 
     # how many
     m = t.take(r'\b(?:top|best|first)\s+(\d{1,3})\b') or t.take(r'\b(\d{1,3})\s+(?:best|top|greatest|highest|most)\b')
@@ -366,6 +380,18 @@ def parse(text: str, teams: dict | None = None, archetypes: dict | None = None, 
         q.stat = q.minimums[0][0] if q.minimums and q.minimums[0][0] not in ('fg_pct', 'x3p_pct', 'ft_pct') else 'ws'
     q.filters.insert(0, Filter('stat', ('lowest ' if q.order == 'asc' else '') + STAT_LABEL[q.stat], q.stat))
 
+    if q.stat == 'titles' and q.teams and not TITLE_RANKING_RE.search(text.lower()):
+        q.team_titles = True
+    if not q.stat_given and not q.team_titles:
+        low = text.lower()
+        best = BEST_TEAM_RE.search(low)
+        if q.teams and PAYROLL_RE.search(low):
+            q.team_intent = 'payroll'
+        elif best and (q.teams or any(w in best.group(0) for w in ('team', 'record', 'wins'))):
+            q.team_intent = 'best'
+            q.team_by_wins = 'wins' in best.group(0)
+        elif q.teams and RECORD_RE.search(low):
+            q.team_intent = 'record'
     q.ignored = t.leftovers()
     return q
 

@@ -185,6 +185,38 @@ with sync_playwright() as p:
           'a name alone shows that player\u2019s card')
     open_page(page, '/search?q=how%20many%20rings%20does%20lebron%20have')
     check(page.locator('#search-answer').inner_text() == 'LeBron James: 4 championships.', 'a question about a player gets a direct answer')
+    open_page(page, '/search?q=how%20many%20rings%20do%20the%20lakers%20have')
+    m = re.match(r'Los Angeles Lakers: (\d+) championships', page.locator('#search-answer').inner_text())
+    check(m is not None and int(m.group(1)) >= 17, 'a question about a team gets that team\u2019s title count')
+    check(page.locator('#search-team-titles').count() == 1 and 'Bill Russell' not in page.content(),
+          'a team question shows the team panel, not a ranking of players')
+    open_page(page, '/search?q=how%20many%20rebounds%20did%20james%20harden%20average%20for%20his%20career')
+    check('rebounds per game' in page.locator('#search-answer').inner_text(), 'asking for an average answers with the per-game number')
+    open_page(page, '/search?q=highest%20career%20scoring%20average')
+    first = page.locator('#search-tbody tr').first.inner_text()
+    check(page.locator('#search-tbody tr').count() >= 10 and ('Chamberlain' in first or 'Jordan' in first),
+          'career averages rank by points per game, not career totals')
+    open_page(page, '/search?q=lakers%20attendance')
+    check('attendance' in page.locator('#search-unsupported').inner_text() and page.locator('#search-tbody').count() == 0
+          and page.locator('#search-answer').count() == 0, 'a question we have no data for says so instead of ranking players')
+    open_page(page, '/search?q=most%20career%20win%20shares%20with%20the%20celtics')
+    check('ignored' in page.locator('#search-unsupported').inner_text() and page.locator('#search-tbody tr').count() >= 10
+          and page.locator('#search-answer').count() == 0, 'a filter that could not be applied is called out, with no direct answer stated')
+    open_page(page, '/search?q=lakers%20record%20in%202020')
+    check('52-19' in page.locator('#search-answer').inner_text() and page.locator('#search-team-table').count() == 1
+          and page.locator('#search-unsupported').count() == 0, 'a team record question gets the record, not a ranking of players')
+    open_page(page, '/search?q=celtics%20best%20season')
+    check('Best season for the Boston Celtics' in page.locator('#search-answer').inner_text(), 'a team\u2019s best season is answered')
+    open_page(page, '/search?q=best%20teams%20of%20the%2090s')
+    check(page.locator('#search-team-tbody tr').count() == 10, 'best teams of a decade lists ten team seasons')
+    open_page(page, '/search?q=lakers%20vs%20celtics')
+    check(page.locator('#search-answer').inner_text().startswith('Los Angeles Lakers vs Boston Celtics')
+          and page.locator('#search-team-table').count() == 1, 'two teams give their head-to-head record')
+    open_page(page, '/search?q=lakers%20payroll')
+    check('payroll' in page.locator('#search-answer').inner_text() and page.locator('#search-team-tbody tr').count() >= 5, 'a team payroll question is answered')
+    open_page(page, '/search?q=most%20career%20points%20with%20the%20celtics')
+    check('Havlicek' in page.locator('#search-tbody tr').first.inner_text() and page.locator('#search-unsupported').count() == 0,
+          'career leaders for a team are ranked from that team\u2019s seasons')
     open_page(page, '/search?q=curry%20vs%20harden')
     check(page.locator('#search-compare-link').get_attribute('href') == '/compare/players/curryst01/hardeja01', 'two names become a comparison')
     open_page(page, '/search?q=most%20points%20in%20a%20playoff%20game')

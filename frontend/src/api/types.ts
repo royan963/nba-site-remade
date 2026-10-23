@@ -279,6 +279,11 @@ export interface SearchPlayerCard {
   first_season: number; last_season: number; g: number; pts: number; ppg: number | null; rpg: number | null; apg: number | null; ws: number | null;
   all_star: number | null; titles: number[]; mvps: number[]; finals_mvps: number[]; salary: { season: number; amount: number } | null;
 }
+// A question (or part of one) the search could not answer as asked. blocking: nothing was ranked; otherwise a filter was dropped.
+export interface SearchUnsupported { kind: string; message: string; link?: { label: string; url: string } | null; blocking: boolean }
+// A small table for a question about a team itself: record, best seasons, payroll, head to head.
+export interface SearchTable { title: string; note?: string | null; columns: { key: string; label: string }[]; rows: Record<string, string | number | null>[] }
+export interface SearchTeamTitles { franchise: string; titles: number; seasons: number[]; finals_appearances: number }
 export interface SearchResponse {
   query: string; scope: 'seasons' | 'careers' | 'games'; playoffs?: boolean; stat: string; stat_label: string; stat_is_pct: boolean; order: 'asc' | 'desc';
   answer?: string | null; player?: SearchPlayerCard | null; links?: { label: string; url: string }[];
@@ -286,6 +291,9 @@ export interface SearchResponse {
   filters: { index: number | null; kind: string; label: string }[]; dropped: number[];
   ignored: string[]; notes: string[]; understood: boolean; season_note: string | null; examples: string[];
   name_matches: { player_id: string; player: string; hof: boolean; first_season: number; last_season: number }[];
+  // stat_is_avg: values are per-game averages ("average", "per game"), not totals.
+  // team_results: set for "how many rings do the Lakers have"-style questions (a team answer, not a player ranking).
+  stat_is_avg?: boolean; team_results?: SearchTeamTitles[]; unsupported?: SearchUnsupported[]; team_table?: SearchTable | null;
   results: (Record<string, number | string | boolean | null> & { player_id: string; player: string; hof: boolean; value: number })[];
 }
 
