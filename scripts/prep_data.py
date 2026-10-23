@@ -108,7 +108,7 @@ dump({'columns': geo_cols, 'rows': geo_rows}, 'team_geo')
 
 # ---------------------------------------------------------------- players
 pt = csv('Player Totals.csv')
-pt = dedupe_tot(pt[pt['lg'].isin(LEAGUES)])
+pt = dedupe_multi(pt[pt['lg'].isin(LEAGUES)])   # one row per season: a traded player's combined 2TM/3TM row, not combined + stints
 info = csv('Player Career Info.csv')
 stat_cols = ['g', 'gs', 'mp', 'fg', 'fga', 'x3p', 'x3pa', 'x2p', 'x2pa', 'ft', 'fta',
              'orb', 'drb', 'trb', 'ast', 'stl', 'blk', 'tov', 'pf', 'pts']
