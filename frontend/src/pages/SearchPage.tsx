@@ -2,10 +2,11 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { enc } from '../api/client';
 import { useApi } from '../api/hooks';
-import type { SearchPlayerCard, SearchResponse } from '../api/types';
+import type { SearchPlayerCard, SearchResponse, SearchTable, SearchUnsupported } from '../api/types';
 import { ErrorNote, HofBadge, Loading, NoData, Panel, Pills, SectionHead } from '../components/ui';
 import { DASH, fmtInt, fmtMoney, fmtNum, fmtSigned, height } from '../lib/format';
 import { roleColor } from './models/archetypeColors';
+import { slugify } from './teams/geo';
 
 const STARTERS = ['how many rings does lebron have', 'curry vs harden', 'best rebounding guards of the 90s', 'most points in a playoff game',
                   'players who averaged 25 and 10 since 2010', 'who has the most championships', 'youngest MVPs', 'tallest players',
@@ -14,6 +15,7 @@ const STARTERS = ['how many rings does lebron have', 'curry vs harden', 'best re
 function formatValue(r: SearchResponse, v: number | null) {
   if (v == null) return DASH;
   if (r.stat_is_pct) return `${(v * 100).toFixed(1)}%`;
+  if (r.stat_is_avg) return fmtNum(v, r.stat === 'x3pm' ? 2 : 1);
   if (r.stat === 'bpm' || r.stat === 'dbpm') return fmtSigned(v);
   if (r.stat === 'height') return height(v);
   if (r.stat === 'salary') return fmtMoney(v);
@@ -97,13 +99,32 @@ export default function SearchPage() {
             </Panel>
           )}
 
-          {data.understood && <Results data={data} />}
-          {!data.understood && !data.player && !data.compare && !data.links?.length && data.name_matches.length === 0 && (
+          {data.unsupported?.length ? <Unsupported items={data.unsupported} onPick={go} /> : null}
+          {data.understood && !data.unsupported?.some(u => u.blocking) && <Results data={data} />}
+          {!data.understood && !data.unsupported?.length && !data.player && !data.compare && !data.links?.length && data.name_matches.length === 0 && (
             <Panel><NoData>Couldn&rsquo;t read that as a stats question or a player&rsquo;s name. Try one of these:</NoData><Starters onPick={go} /></Panel>
           )}
         </div>
       )}
     </section>
+  );
+}
+
+/** A question the search could not answer as asked: say so, point to the page that has the answer if there is one, and
+ *  never present an unrelated ranking as the answer. A non-blocking item is a filter that was dropped; the ranking stays. */
+function Unsupported({ items, onPick }: { items: SearchUnsupported[]; onPick: (q: string) => void }) {
+  const blocking = items.some(u => u.blocking);
+  return (
+    <Panel id="search-unsupported">
+      {items.map(u => (
+        <div key={u.kind + u.message} className="search-answer" data-kind={u.kind}>
+          {!u.blocking && <strong>Heads up: </strong>}{u.message}{u.link && <> <Link to={u.link.url}>{u.link.label}</Link></>}
+        </div>
+      ))}
+      {blocking
+        ? <><NoData>Try one of these:</NoData><Starters onPick={onPick} /></>
+        : <p className="section-sub" style={{ margin: '10px 0 0' }}>The ranking below does not apply the part of your question mentioned above.</p>}
+    </Panel>
   );
 }
 
@@ -189,7 +210,57 @@ function CompareCard({ compare }: { compare: NonNullable<SearchResponse['compare
   );
 }
 
+/** "How many rings do the Lakers have": the answer is about the franchise, so show its championships rather than players. */
+function TeamTitles({ data }: { data: SearchResponse }) {
+  return (
+    <Panel id="search-team-titles">
+      <div className="table-scroll">
+        <table className="lb-table">
+          <thead><tr><th>Team</th><th>Championships</th><th>Finals</th><th>Championship seasons</th></tr></thead>
+          <tbody>
+            {(data.team_results ?? []).map(t => (
+              <tr key={t.franchise}>
+                <td><Link to={`/teams/${slugify(t.franchise)}`}>{t.franchise}</Link></td>
+                <td className="sorted-cell">{t.titles}</td>
+                <td>{t.finals_appearances}</td>
+                <td className="similar-meta" style={{ whiteSpace: 'normal', minWidth: 280 }}>{t.seasons.length ? t.seasons.map(season).join(', ') : DASH}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="section-sub" style={{ margin: '10px 0 0' }}>Seasons are labeled by the year they started: 2019-20 is the season that ended in 2020. Finals counts every Finals trip, wins and losses.</p>
+    </Panel>
+  );
+}
+
+/** Questions about a team itself (record, best seasons, payroll, head to head): one table, columns chosen by the server. */
+function TeamTable({ table }: { table: SearchTable }) {
+  return (
+    <Panel id="search-team-table">
+      <SectionHead title={table.title} small />
+      <div className="table-scroll">
+        <table className="lb-table">
+          <thead><tr>{table.columns.map(c => <th key={c.key}>{c.label}</th>)}</tr></thead>
+          <tbody id="search-team-tbody">
+            {table.rows.map((r, i) => (
+              <tr key={i}>
+                {table.columns.map(c => (
+                  <td key={c.key}>{c.key === 'team' && r.team_url ? <Link to={String(r.team_url)}>{r[c.key]}</Link> : (r[c.key] ?? DASH)}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {table.note && <p className="section-sub" style={{ margin: '10px 0 0' }}>{table.note}</p>}
+    </Panel>
+  );
+}
+
 function Results({ data }: { data: SearchResponse }) {
+  if (data.team_results?.length) return <TeamTitles data={data} />;
+  if (data.team_table) return <TeamTable table={data.team_table} />;
   if (!data.results.length) return <Panel><NoData>No {data.scope === 'careers' ? 'careers' : data.scope === 'games' ? 'games' : 'seasons'} match all of these filters. Try removing one.</NoData></Panel>;
   if (data.scope === 'games') return <GameResults data={data} />;
   if (data.playoffs) return <PlayoffResults data={data} />;
