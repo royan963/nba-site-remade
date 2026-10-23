@@ -364,6 +364,7 @@ games = Table(
     Column('home_franchise', String(64)), Column('away_franchise', String(64)),
     Column('home_pts', Integer), Column('away_pts', Integer), Column('ot', Integer),
     Column('playoffs', Boolean, nullable=False), Column('series', String(48)),
+    Column('kind', String(10), nullable=False),                     # regular | playoffs | play_in | cup_final (the last two are not counted in regular-season stats)
     Column('src', String(10)),                                      # bref | deocheng
     Column('complete', Boolean, nullable=False),                    # player points add up to the final score
     Index('ix_games_franchises', 'home_franchise', 'away_franchise'),
@@ -377,6 +378,7 @@ player_games = Table(
     Column('player_id', String(16), nullable=False), Column('game_ref', String(12), nullable=False),
     Column('team', String(4), nullable=False),
     Column('season', SmallInteger, nullable=False), Column('playoffs', Boolean, nullable=False),
+    Column('kind', String(10), nullable=False),                     # same as games.kind
     Column('started', Boolean), Column('mp', REAL),
     *[Column(c, SmallInteger) for c in ('fg', 'fga', 'x3p', 'x3pa', 'ft', 'fta', 'orb', 'drb', 'trb', 'ast', 'stl', 'blk', 'tov', 'pf', 'pts', 'pm')],
     Column('src', String(8)),                                       # bref | dc_log | dc_pbp (rebuilt: no ast, minutes, fouls, ORB/DRB)

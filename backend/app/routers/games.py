@@ -13,8 +13,22 @@ LINE = ['mp', 'pts', 'trb', 'ast', 'stl', 'blk', 'tov', 'pf', 'fg', 'fga', 'x3p'
 HIGH_STATS = ['pts', 'trb', 'ast', 'stl', 'blk', 'x3p', 'ft', 'fg']
 
 
+class _Names(dict):
+    """(season, abbreviation) -> team name; a season newer than the team data uses the team's latest name."""
+
+    def __init__(self, rows):
+        super().__init__(rows)
+        self.last = max((k[0] for k in self), default=0)
+        self.newest = {a: n for (_, a), n in sorted(self.items())}
+
+    def get(self, key, default=None):
+        if key in self:
+            return self[key]
+        return self.newest.get(key[1], default) if key[0] > self.last else default
+
+
 def team_names(conn):
-    return {(r.season, r.abbr): r.team_name for r in conn.execute(select(s.team_seasons.c.season, s.team_seasons.c.abbr, s.team_seasons.c.team_name))}
+    return _Names({(r.season, r.abbr): r.team_name for r in conn.execute(select(s.team_seasons.c.season, s.team_seasons.c.abbr, s.team_seasons.c.team_name))})
 
 
 def player_or_404(conn, pid):
@@ -63,7 +77,7 @@ def _coverage(conn):
 def gamelog(player_id: str, season: int | None = None, type: Literal['regular', 'playoffs'] = 'regular', conn=Depends(get_conn)):
     player_or_404(conn, player_id)
     seasons = [dict(r) for r in conn.execute(
-        select(PG.c.season, func.sum(case((PG.c.playoffs, 0), else_=1)).label('regular'), func.sum(case((PG.c.playoffs, 1), else_=0)).label('playoffs'))
+        select(PG.c.season, func.sum(case((PG.c.kind == 'regular', 1), else_=0)).label('regular'), func.sum(case((PG.c.kind == 'playoffs', 1), else_=0)).label('playoffs'))
         .where(PG.c.player_id == player_id).group_by(PG.c.season).order_by(PG.c.season)).mappings()]
     if not seasons:
         return {'player_id': player_id, 'seasons': [], 'season': None, 'type': type, 'games': [], 'rebuilt_games': 0}
@@ -73,7 +87,7 @@ def gamelog(player_id: str, season: int | None = None, type: Literal['regular', 
     names = team_names(conn)
     q = (select(PG, G.c.date, G.c.home, G.c.away, G.c.home_pts, G.c.away_pts, G.c.ot)
          .join(G, G.c.game_ref == PG.c.game_ref)
-         .where(PG.c.player_id == player_id, PG.c.season == season, PG.c.playoffs == (type == 'playoffs')).order_by(G.c.date))
+         .where(PG.c.player_id == player_id, PG.c.season == season, PG.c.kind == ('playoffs' if type == 'playoffs' else 'regular')).order_by(G.c.date))
     games = []
     for r in conn.execute(q).mappings():
         games.append({**game_view(r, r['team'], names), **{k: r[k] for k in LINE}, 'started': r['started'], 'src': r['src']})
@@ -88,7 +102,7 @@ def highs(player_id: str, type: Literal['regular', 'playoffs'] = 'regular', conn
     names = team_names(conn)
     rows = [dict(r) for r in conn.execute(
         select(PG, G.c.date, G.c.home, G.c.away, G.c.home_pts, G.c.away_pts, G.c.ot).join(G, G.c.game_ref == PG.c.game_ref)
-        .where(PG.c.player_id == player_id, PG.c.playoffs == (type == 'playoffs')).order_by(G.c.date)).mappings()]
+        .where(PG.c.player_id == player_id, PG.c.kind == ('playoffs' if type == 'playoffs' else 'regular')).order_by(G.c.date)).mappings()]
     out = {}
     for stat in HIGH_STATS:
         vals = [r for r in rows if r[stat] is not None]
@@ -131,7 +145,7 @@ def h2h_teams(a: str, b: str, conn=Depends(get_conn)):
     recent = []
     for r in rows[-12:][::-1]:
         a_home = r['home_franchise'] == a
-        recent.append({'date': r['date'], 'season': r['season'], 'playoffs': r['playoffs'], 'game_ref': r['game_ref'],
+        recent.append({'date': r['date'], 'season': r['season'], 'playoffs': r['playoffs'], 'kind': r['kind'], 'game_ref': r['game_ref'],
                        'a_team': names.get((r['season'], r['home'] if a_home else r['away'])), 'b_team': names.get((r['season'], r['away'] if a_home else r['home'])),
                        'a_pts': r['home_pts'] if a_home else r['away_pts'], 'b_pts': r['away_pts'] if a_home else r['home_pts'], 'a_home': a_home})
     sr = s.playoff_series
@@ -140,7 +154,7 @@ def h2h_teams(a: str, b: str, conn=Depends(get_conn)):
                                              .order_by(sr.c.season)).mappings()]
     series = [{'season': x['season'], 'round': x['round_name'], 'winner': x['winner_franchise'],
                'a_wins': x['wins_a'] if x['franchise_a'] == a else x['wins_b'], 'b_wins': x['wins_b'] if x['franchise_a'] == a else x['wins_a']} for x in series]
-    return {'a': a, 'b': b, 'regular': rec([r for r in rows if not r['playoffs']]), 'playoffs': rec([r for r in rows if r['playoffs']]),
+    return {'a': a, 'b': b, 'regular': rec([r for r in rows if r['kind'] == 'regular']), 'playoffs': rec([r for r in rows if r['kind'] == 'playoffs']),
             'series': series, 'series_a_won': sum(1 for x in series if x['winner'] == a), 'recent': recent,
             'first_meeting': rows[0]['date'] if rows else None}
 
@@ -151,13 +165,13 @@ def h2h_players(a: str, b: str, conn=Depends(get_conn)):
         raise HTTPException(400, 'Pick two different players')
     pa_, pb_ = player_or_404(conn, a), player_or_404(conn, b)
     A, B = PG.alias('a'), PG.alias('b')
-    q = (select(A.c.game_ref, A.c.team.label('a_team'), B.c.team.label('b_team'), A.c.playoffs, G.c.date, G.c.season, G.c.home, G.c.away,
+    q = (select(A.c.game_ref, A.c.team.label('a_team'), B.c.team.label('b_team'), A.c.playoffs, A.c.kind, G.c.date, G.c.season, G.c.home, G.c.away,
                 G.c.home_pts, G.c.away_pts, *[A.c[k].label('a_' + k) for k in LINE], *[B.c[k].label('b_' + k) for k in LINE])
          .join(B, and_(B.c.game_ref == A.c.game_ref, B.c.player_id == b))
          .join(G, G.c.game_ref == A.c.game_ref).where(A.c.player_id == a).order_by(G.c.date))
     rows = conn.execute(q).mappings().all()
-    vs = [r for r in rows if r['a_team'] != r['b_team']]
-    together = [r for r in rows if r['a_team'] == r['b_team']]
+    vs = [r for r in rows if r['a_team'] != r['b_team'] and r['kind'] in ('regular', 'playoffs')]      # play-in and Cup final games don't count
+    together = [r for r in rows if r['a_team'] == r['b_team'] and r['kind'] in ('regular', 'playoffs')]
     names = team_names(conn)
 
     def summary(sub):

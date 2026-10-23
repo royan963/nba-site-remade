@@ -29,15 +29,16 @@ def test_gamelog_shapes_and_results(client):
     assert {1985, 1998, 2003} <= seasons
 
 
-def test_newest_seasons_and_the_known_gap(client):
+def test_newest_seasons_have_playoffs_and_the_current_season(client):
     cov = get(client, '/api/v1/games/coverage')
-    assert cov['missing_playoffs'] == [2025] and cov['last_season'] >= 2026
+    assert cov['missing_playoffs'] == [] and cov['last_season'] >= 2027      # the 2024-25 playoffs were filled in from the eoinamoore data
     reg = get(client, '/api/v1/players/gilgesh01/gamelog?season=2026')
     assert len(reg['games']) >= 60
     assert get(client, '/api/v1/players/gilgesh01/gamelog?season=2026&type=playoffs')['games']
-    assert get(client, '/api/v1/players/gilgesh01/gamelog?season=2025&type=playoffs')['games'] == []
+    po25 = get(client, '/api/v1/players/gilgesh01/gamelog?season=2025&type=playoffs')['games']
+    assert len(po25) == 23 and po25[-1]['date'] == '2025-06-22' and po25[-1]['result'] == 'W'
     by_cov = {(s['season'], s['playoffs']): s for s in cov['seasons']}
-    assert by_cov[(2026, True)]['games'] == 85 and by_cov[(2025, False)]['complete'] >= 1220
+    assert by_cov[(2026, True)]['games'] == 85 and by_cov[(2025, False)]['complete'] >= 1220 and by_cov[(2025, True)]['games'] == 84
 
 
 def test_rebuilt_rows_leave_unverified_stats_blank(client):
@@ -72,3 +73,42 @@ def test_player_head_to_head(client):
     t = get(client, '/api/v1/head-to-head/players?a=curryst01&b=thompkl01')
     assert t['teammate_games'] > 500 and t['regular']['games'] > 0                                       # Klay later played against him
     get(client, '/api/v1/head-to-head/players?a=jamesle01&b=jamesle01', status=400)
+
+
+def test_current_season_games_know_their_franchises_and_team_names(client):
+    """2026-27 has no team-season rows yet, so franchises and names carry over from the team's latest season."""
+    h = get(client, '/api/v1/head-to-head/teams?a=Detroit Pistons&b=Boston Celtics')
+    first = h['recent'][0]
+    assert (first['season'], first['date']) == (2027, '2026-10-20') and (first['a_pts'], first['b_pts']) == (121, 113)
+    assert first['a_team'] == 'Detroit Pistons' and first['b_team'] == 'Boston Celtics' and first['a_home'] is True
+
+
+# ---- play-in and NBA Cup final games are not regular-season games --------------------------------------------------------
+# The NBA does not count play-in games or the Cup championship game in regular-season totals, records or player stats.
+
+def test_play_in_and_cup_final_games_are_not_in_a_players_regular_season_log(client):
+    lebron = get(client, '/api/v1/players/jamesle01/gamelog?season=2024')['games']
+    assert len(lebron) == 71                                        # his 2023-24 regular season (he also played the Cup final and a play-in game)
+    assert '2023-12-09' not in {g['date'] for g in lebron} and '2024-04-16' not in {g['date'] for g in lebron}
+    sga = get(client, '/api/v1/players/gilgesh01/gamelog?season=2025')['games']
+    assert len(sga) == 76 and '2024-12-17' not in {g['date'] for g in sga}
+
+
+def test_play_in_games_are_not_playoff_games_either(client):
+    playoffs = get(client, '/api/v1/players/jamesle01/gamelog?season=2024&type=playoffs')['games']
+    assert playoffs and all(g['date'] >= '2024-04-20' for g in playoffs)
+
+
+def test_career_highs_and_milestones_skip_play_in_and_cup_final_games(client):
+    highs = get(client, '/api/v1/players/jamesle01/highs')
+    games = highs['milestones']['games']
+    all_games = sum(len(get(client, f'/api/v1/players/jamesle01/gamelog?season={s}')['games']) for s in range(2004, 2028))
+    assert games == all_games == 1623          # 1,622 through 2025-26 (the career total) + his first 2026-27 game
+
+
+def test_team_head_to_head_records_skip_the_cup_final(client):
+    h = get(client, '/api/v1/head-to-head/teams?a=Los Angeles Lakers&b=Indiana Pacers')
+    assert '2023-12-09' not in {g['date'] for g in h['recent'] if g.get('kind') == 'regular'}
+    assert all(g['kind'] in ('regular', 'playoffs', 'play_in', 'cup_final') for g in h['recent'])
+    cup = [g for g in h['recent'] if g['date'] == '2023-12-09']
+    assert cup and cup[0]['kind'] == 'cup_final'

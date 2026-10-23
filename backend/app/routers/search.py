@@ -422,8 +422,7 @@ def run_games(conn, q, notes):
     cond = [rank.is_not(None)]
     if q.player_ids:
         cond.append(pg.c.player_id.in_(q.player_ids))
-    if q.playoffs:
-        cond.append(pg.c.playoffs.is_(True))
+    cond.append(pg.c.kind == 'playoffs' if q.playoffs else pg.c.kind.in_(('regular', 'playoffs')))      # play-in and Cup final games don't count
     if q.season_from:
         cond.append(pg.c.season >= q.season_from)
     if q.season_to:

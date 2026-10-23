@@ -242,20 +242,27 @@ def load_games(conn, known, franchise_of, batch=20000):
     """Stream data/games/*.csv.gz into games / player_games in batches (1.5M rows don't fit comfortably in memory as dicts)."""
     gdir = DATA / 'games'
     counts = {'games': 0, 'player_games': 0, 'player_games_skipped': 0}
+    last_season = max((s for s, _ in franchise_of), default=0)
+    newest = {a: f for (s, a), f in sorted(franchise_of.items())}          # abbreviation -> franchise in its latest season
+
+    def franchise(season, abbr):
+        """A season newer than the team data (the current season's games) uses each team's latest known franchise."""
+        return franchise_of.get((season, abbr)) or (newest.get(abbr) if season > last_season else None)
     for f in sorted(gdir.glob('games_*.csv.gz')) if gdir.exists() else []:
         season = int(f.name.split('_')[1].split('.')[0])
         with gzip.open(f, 'rt', encoding='utf-8') as fh:
             rows = [{'game_ref': r['game_ref'], 'season': int(r['season']), 'date': r['date'], 'home': r['home'], 'away': r['away'],
-                     'home_franchise': franchise_of.get((season, r['home'])), 'away_franchise': franchise_of.get((season, r['away'])),
+                     'home_franchise': franchise(season, r['home']), 'away_franchise': franchise(season, r['away']),
                      'home_pts': _int(r['home_pts']), 'away_pts': _int(r['away_pts']), 'ot': _int(r.get('ot')),
                      'playoffs': _bool(r['playoffs']) or False, 'series': r.get('series') or None, 'src': r.get('src') or None,
+                     'kind': r.get('kind') or ('playoffs' if _bool(r['playoffs']) else 'regular'),
                      'complete': _bool(r.get('complete')) or False} for r in csv.DictReader(fh)]
         gw = _Writer(conn, schema.games, batch)
         for r in rows:
             gw.add(r)
         gw.flush()
         counts['games'] += len(rows)
-        info = {r['game_ref']: r['playoffs'] for r in rows}
+        info = {r['game_ref']: (r['playoffs'], r['kind']) for r in rows}
         pf = gdir / f'player_games_{season}.csv.gz'
         if not pf.exists():
             continue
@@ -270,7 +277,7 @@ def load_games(conn, known, franchise_of, batch=20000):
                 if r['player_id'] not in known or r['game_ref'] not in info:
                     counts['player_games_skipped'] += 1
                     continue
-                row = {'player_id': r['player_id'], 'game_ref': r['game_ref'], 'season': season, 'playoffs': info[r['game_ref']],
+                row = {'player_id': r['player_id'], 'game_ref': r['game_ref'], 'season': season, 'playoffs': info[r['game_ref']][0], 'kind': info[r['game_ref']][1],
                        'team': r['team'] or None, 'started': _bool(r.get('started')), 'mp': _num(r.get('mp')), 'src': r.get('src') or None}
                 for k in GAME_STATS:
                     row[k] = _int(r.get(k))
