@@ -31,7 +31,9 @@ def test_search_ignores_accents(client):
 def test_player_with_two_spellings_has_one_full_career(client):
     hits = get(client, '/api/v1/players?q=krejci')
     assert len(hits) == 1
-    assert hits[0]['pts'] == 1870    # 770 + 1100 from both spellings
+    # Both spellings are one career: 187 + 36 + 135 + 412 + 550 (2026 is his traded season, counted once as the combined 2TM row).
+    # The old expected value, 1870, was wrong: it added the ATL and POR stints (414 + 136) on top of that combined row.
+    assert hits[0]['pts'] == 1320
 
 
 def test_player_index_is_compact(client):
