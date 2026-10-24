@@ -103,7 +103,7 @@ def test_career_highs_and_milestones_skip_play_in_and_cup_final_games(client):
     highs = get(client, '/api/v1/players/jamesle01/highs')
     games = highs['milestones']['games']
     all_games = sum(len(get(client, f'/api/v1/players/jamesle01/gamelog?season={s}')['games']) for s in range(2004, 2028))
-    assert games == all_games == 1623          # 1,622 through 2025-26 (the career total) + his first 2026-27 game
+    assert games == all_games and games >= 1623          # 1,622 through 2025-26 (the career total) plus this season's games so far
 
 
 def test_team_head_to_head_records_skip_the_cup_final(client):
