@@ -63,11 +63,18 @@ def insert(conn, table, rows):
 def build_rows():
     """Read every data file and shape it for its table."""
     players = as_dicts(read('player_career'))
+    seasons = as_dicts(read('player_seasons'))
+    # Players in the newest games who aren't in the Basketball-Reference tables yet (this year's rookies), built by
+    # scripts/prep_games_eoin.py. An official row for the same id always wins.
+    if (DATA / 'new_players.json').exists():
+        extra = read('new_players')
+        official = {p['player_id'] for p in players}
+        players += [p for p in extra['players'] if p['player_id'] not in official]
+        seasons += [r for r in extra['seasons'] if r['player_id'] not in official]
     for p in players:
         p['name_search'] = normalize_name(p['player'])
     known = {p['player_id'] for p in players}
 
-    seasons = as_dicts(read('player_seasons'))
     for s in seasons:
         s['combined'] = s['team'] in MULTITEAM
 

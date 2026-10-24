@@ -199,7 +199,7 @@ def test_incomplete_games_have_no_player_rows():
 def test_added_player_rows_use_known_player_ids_and_no_player_is_in_a_game_twice():
     import json
     d = json.loads((ROOT / 'data' / 'player_career.json').read_text(encoding='utf8'))
-    known = {r[0] for r in d['rows']}
+    known = {r[0] for r in d['rows']} | {p['player_id'] for p in json.loads((ROOT / 'data' / 'new_players.json').read_text(encoding='utf8'))['players']}
     for season in (2025, 2026, 2027):
         pg = read(f'player_games_{season}.csv.gz')
         pg = pg[pg['src'] == 'eoin']
@@ -224,3 +224,18 @@ def test_kind_of_a_game_comes_from_the_nba_game_id():
     assert ge.game_kind(22600005) == 'regular' and ge.game_kind(42400407) == 'playoffs'
     assert ge.game_kind(52500211) == 'play_in' and ge.game_kind(62400001) == 'cup_final'
     assert ge.game_kind(12600001) is None and ge.game_kind(32600001) is None          # preseason (1) and All-Star (3) are not kept
+
+
+def test_a_player_with_blank_minutes_but_real_stats_counts_as_having_played():
+    """The source leaves minutes blank for every player in a few games (2026-10-21 Bulls at Raptors), though the points add up."""
+    cols = ['numMinutes', 'points', 'fieldGoalsAttempted', 'freeThrowsAttempted', 'reboundsTotal', 'assists', 'steals', 'blocks', 'turnovers', 'foulsPersonal']
+    df = pd.DataFrame([
+        ['30:12', 10, 5, 0, 1, 1, 0, 0, 1, 2],              # played, minutes as text
+        [np.nan, 23, 15, 4, 5, 3, 1, 0, 2, 2],              # minutes blank, clearly played
+        [np.nan, 0, 0, 0, 0, 0, 0, 0, 0, 0],                # did not play
+        [np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan],   # did not play (nothing recorded)
+        ['0', 0, 0, 0, 0, 0, 0, 0, 0, 0],                   # zero minutes
+        [np.nan, 0, 0, 0, 0, 0, 0, 0, 1, 1],                # blank minutes, a turnover and a foul: played
+    ], columns=cols)
+    df['mp'] = df['numMinutes'].map(ge.minutes_to_float)
+    assert ge.played_mask(df).tolist() == [True, True, False, False, False, True]
