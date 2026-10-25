@@ -158,9 +158,14 @@ def test_recent_games_top_scorers_match_their_game_logs(client):
 
 
 def test_recent_games_without_player_stats_have_no_top_scorers(client):
-    games = get(client, '/api/v1/games/recent?dates=10')['games']
-    incomplete = [g for g in games if not g['complete']]
-    assert incomplete and all(g['top'] == {'home': None, 'away': None} for g in incomplete)
+    """MIA-CHI on 2023-12-16 is one of two games in the box-score data whose player points do not add up, so it has no player stats."""
+    games = get(client, '/api/v1/games/recent?dates=1&before=2023-12-16')['games']
+    gap = next(g for g in games if g['game_ref'] == '202312160MIA')
+    assert gap['complete'] is False and gap['top'] == {'home': None, 'away': None} and (gap['home']['pts'], gap['away']['pts']) == (118, 116)
+    full = [g for g in games if g['complete']]
+    assert full and all(g['top']['home'] and g['top']['away'] for g in full)          # the rest of that day has top scorers
+    latest = get(client, '/api/v1/games/recent?dates=14')['games']
+    assert all(g['top'] == {'home': None, 'away': None} for g in latest if not g['complete'])      # whatever is incomplete today has none
 
 
 def test_recent_games_include_a_finals_game_seven(client):
