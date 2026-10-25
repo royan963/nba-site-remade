@@ -1,4 +1,5 @@
 """Game-by-game: player game logs, career highs, and head-to-head for teams and players."""
+from datetime import date as Date
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
@@ -71,6 +72,46 @@ def _coverage(conn):
     return {'seasons': [{'season': k[0], 'playoffs': k[1], 'games': v['games'], 'complete': int(v['complete'] or 0)} for k, v in sorted(have.items())],
             'missing_playoffs': missing_playoffs,
             'first_season': min(k[0] for k in have) if have else None, 'last_season': max(k[0] for k in have) if have else None}
+
+
+@router.get('/games/recent', summary='The most recent days with games, newest first, with the top scorer for each team')
+def recent_games(response: Response, dates: int = Query(3, ge=1, le=14, description='How many of the most recent days with games'),
+                 before: Date | None = Query(None, description='Only games on or before this date (default: all)'), conn=Depends(get_conn)):
+    response.headers['Cache-Control'] = 'public, max-age=300'
+    day_q = select(G.c.date).distinct().order_by(G.c.date.desc()).limit(dates)
+    if before is not None:
+        day_q = select(G.c.date).where(G.c.date <= before.isoformat()).distinct().order_by(G.c.date.desc()).limit(dates)
+    days = [d for (d,) in conn.execute(day_q)]
+    if not days:
+        return {'dates': 0, 'latest': None, 'games': []}
+    rows = conn.execute(select(G).where(G.c.date.in_(days)).order_by(G.c.date.desc(), G.c.game_ref)).mappings().all()
+    names = team_names(conn)
+    refs = [r['game_ref'] for r in rows if r['complete']]
+    best = {}                                                       # (game, team) -> the team's top scorer in that game
+    if refs:
+        q = (select(PG.c.game_ref, PG.c.team, PG.c.player_id, s.players.c.player, PG.c.pts, PG.c.trb, PG.c.ast)
+             .join(s.players, s.players.c.player_id == PG.c.player_id).where(PG.c.game_ref.in_(refs), PG.c.pts.is_not(None)))
+        for r in conn.execute(q).mappings():
+            key = (r['game_ref'], r['team'])
+            cur = best.get(key)
+            if cur is None or (r['pts'], r['ast'] or 0, r['trb'] or 0) > (cur['pts'], cur['ast'] or 0, cur['trb'] or 0):
+                best[key] = dict(r)
+
+    def side(r, which):
+        abbr = r[which]
+        return {'abbr': abbr, 'name': names.get((r['season'], abbr)) or abbr, 'franchise': r[which + '_franchise'], 'pts': r[which + '_pts']}
+
+    def top(r, which):
+        t = best.get((r['game_ref'], r[which]))
+        return None if t is None else {'player_id': t['player_id'], 'player': t['player'], 'pts': t['pts'], 'trb': t['trb'], 'ast': t['ast']}
+    games = []
+    for r in rows:
+        hp, ap = r['home_pts'], r['away_pts']
+        games.append({'game_ref': r['game_ref'], 'date': r['date'], 'season': r['season'], 'kind': r['kind'], 'ot': r['ot'], 'complete': r['complete'],
+                      'home': side(r, 'home'), 'away': side(r, 'away'),
+                      'winner': None if hp is None or ap is None or hp == ap else ('home' if hp > ap else 'away'),
+                      'top': {'home': top(r, 'home'), 'away': top(r, 'away')}})
+    return {'dates': len(days), 'latest': days[0], 'games': games}
 
 
 @router.get('/players/{player_id}/gamelog', summary="A player's games in one season (regular season or playoffs)")
