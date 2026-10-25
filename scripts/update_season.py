@@ -42,6 +42,9 @@ DEOCHENG_DATASET = os.environ.get('DEOCHENG_DATASET') or 'deocheng/nba-data-1946
 GAMES = DATA / 'games'
 RAW_GAMES = DATA / 'raw_games'          # the frozen box-score dataset; optional
 RAW_DC = DATA / 'raw_deocheng'
+EOIN_DATASET = os.environ.get('EOIN_DATASET') or 'eoinamoore/historical-nba-data-and-player-box-scores'   # updated daily
+RAW_EOIN = DATA / 'raw_eoin'
+EOIN_FILES = ['Games.csv', 'PlayerStatistics.csv', 'Players.csv']
 MIN_COMPLETE = 0.9                      # share of a season's games that must have complete player stats
 
 sys.path.insert(0, str(ROOT / 'scripts'))
@@ -96,6 +99,30 @@ def download_from_kaggle(dest, dataset=KAGGLE_DATASET, unzip=True):
         fail('Kaggle login needed (see the instructions above), or download the zip yourself and use --zip.')
     print(f'Downloading {dataset} ...')
     api.dataset_download_files(dataset, path=str(dest), unzip=unzip, quiet=False)
+
+
+def get_eoin():
+    """The three files of the eoinamoore dataset that prep_games_eoin.py reads, into data/raw_eoin/."""
+    try:
+        from kaggle.api.kaggle_api_extended import KaggleApi
+    except ImportError:
+        fail('the Kaggle client isn\'t installed. Run `pip install kaggle`.')
+    api = KaggleApi()
+    try:
+        api.authenticate()
+    except SystemExit:
+        fail('Kaggle login needed (see the instructions above).')
+    RAW_EOIN.mkdir(parents=True, exist_ok=True)
+    for name in EOIN_FILES:
+        print(f'Downloading {EOIN_DATASET} / {name} ...')
+        api.dataset_download_file(EOIN_DATASET, name, path=str(RAW_EOIN), force=True, quiet=True)
+        zipped = RAW_EOIN / (name + '.zip')
+        if zipped.exists():
+            with zipfile.ZipFile(zipped) as z:
+                z.extractall(RAW_EOIN)
+            zipped.unlink()
+        if not (RAW_EOIN / name).exists() or (RAW_EOIN / name).stat().st_size == 0:
+            fail(f'{name} did not download from {EOIN_DATASET}')
 
 
 def get_box_scores(args):
@@ -307,6 +334,12 @@ def main():
         step('Checking Finals MVPs against official counts')
         if not run([sys.executable, 'scripts/build_finals_mvp.py', str(d1)]):
             restore('build_finals_mvp.py failed (a Finals MVP did not match the official counts)')
+        # last, because the game rebuild above starts from the Deo Cheng data and would erase these: the games it lacks
+        # (2024-25 playoffs, missing 2025-26 games, this season so far), the play-in and Cup-final tags, this season's rookies
+        step('Adding games, play-in and Cup tags and this season\'s rookies from the eoinamoore dataset')
+        get_eoin()
+        if not run([sys.executable, 'scripts/prep_games_eoin.py', str(RAW_EOIN)]):
+            restore('prep_games_eoin.py failed')
     # after the Deo Cheng step, so the newest season's MVP vote is in before training
     step('Training the MVP model')
     if not run([sys.executable, 'scripts/train_mvp.py']):
