@@ -1,13 +1,12 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { Link } from 'react-router-dom';
-import type { ChartConfiguration } from 'chart.js';
 import { useApi } from '../../api/hooks';
 import type { Archetype, ArchetypeModel, ArchetypePlayers } from '../../api/types';
-import { ChartCanvas, ErrorNote, HofBadge, Loading, Panel, Pills, SectionHead } from '../../components/ui';
-import { MONO, PALETTE, TOOLTIP, axis, baseOptions } from '../../lib/chart';
+import { ErrorNote, HofBadge, Loading, Panel, Pills, SectionHead } from '../../components/ui';
 import { fmtNum } from '../../lib/format';
 import { useQueryParam } from '../../lib/useQuery';
 import { roleColor } from './archetypeColors';
+import { areaPath, arcPath, decadeTicks, linePath, nearestIndex, peakOf, pieSlices, polar, seasonLabel, sharedMax, sparkPoints, yTicks } from './archetypeTrend';
 
 const pct = (v: number | undefined) => `${Math.round((v ?? 0) * 100)}%`;
 
@@ -17,9 +16,10 @@ export function ArchetypesPage() {
   if (error) return <ErrorNote error={error} />;
   if (!data) return <Loading />;
   const role = data.archetypes.find(a => a.key === selected);
+  const pick = (key: string) => setSelected(key === selected ? '' : key);
   return (
     <div id="archetypes-page">
-      <TrendChart model={data} />
+      <TrendSection model={data} selected={selected} onSelect={pick} />
       <div className="archetype-grid" id="archetype-grid">
         {[...data.archetypes].sort((a, b) => (b.share_by_decade['2020'] ?? 0) - (a.share_by_decade['2020'] ?? 0)).map(a => (
           <ArchetypeCard key={a.key} a={a} labels={data.method.feature_labels} active={a.key === selected}
@@ -36,43 +36,239 @@ export function ArchetypesPage() {
   );
 }
 
-function TrendChart({ model }: { model: ArchetypeModel }) {
-  const config = useMemo<ChartConfiguration>(() => {
-    // stacked from the most "traditional" roles at the bottom to perimeter roles on top
-    const order = ['rim-protector', 'rebounding-forward', 'scoring-big', 'stretch-big', 'role-player', 'scoring-wing',
+type TrendView = 'each' | 'year';
+const VIEWS: { value: TrendView; label: string }[] = [{ value: 'each', label: 'Each role' }, { value: 'year', label: 'By year' }];
+// roles in a fixed order (traditional bigs first, then perimeter roles) so a slice stays in place as the years change
+const PIE_ORDER = ['rim-protector', 'rebounding-forward', 'scoring-big', 'stretch-big', 'role-player', 'scoring-wing',
                    'spot-up-shooter', 'combo-guard', 'floor-general', 'star-creator'];
-    const roles = [...model.archetypes].sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key));
-    return {
-      type: 'line',
-      data: {
-        labels: model.trend.seasons,
-        datasets: roles.map(a => ({
-          label: a.name, data: model.trend.shares[String(a.id)].map(v => v * 100),
-          borderColor: roleColor(a.key), backgroundColor: roleColor(a.key) + 'cc', fill: true, pointRadius: 0, borderWidth: 1, tension: 0.3,
-        })),
-      },
-      options: baseOptions({
-        interaction: { mode: 'index', intersect: false },
-        plugins: {
-          legend: { position: 'bottom', labels: { color: PALETTE.chalkDim, font: MONO, boxWidth: 12, boxHeight: 12 } },
-          tooltip: { ...TOOLTIP, itemSort: (x: { parsed: { y: number } }, y: { parsed: { y: number } }) => y.parsed.y - x.parsed.y,
-            callbacks: { label: (c: { dataset: { label: string }; parsed: { y: number } }) => `${c.dataset.label}: ${c.parsed.y.toFixed(1)}%` } },
-        },
-        scales: {
-          x: axis({ ticks: { maxTicksLimit: 12 } }),
-          y: { ...axis({ ticks: { callback: (v: number) => v + '%' } }), stacked: true, min: 0, max: 100,
-               title: { display: true, text: 'Share of league minutes', color: PALETTE.chalkDim, font: MONO } },
-        },
-      }),
-    };
-  }, [model]);
+
+function useWidth(ref: RefObject<HTMLElement | null>) {
+  const [w, setW] = useState(0);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    setW(el.clientWidth);
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(([e]) => setW(Math.round(e.contentRect.width)));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [ref]);
+  return w;
+}
+
+function TrendSection({ model, selected, onSelect }: { model: ArchetypeModel; selected: string; onSelect: (key: string) => void }) {
+  const [viewParam, setView] = useQueryParam('view', 'each');
+  const view: TrendView = viewParam === 'year' ? 'year' : 'each';
+  const role = model.archetypes.find(a => a.key === selected);
+  const seasons = model.trend.seasons;
+  const max = useMemo(() => sharedMax(Object.values(model.trend.shares).map(v => v.map(x => x * 100))), [model]);
+  const ordered = useMemo(() => [...model.archetypes].sort((a, b) => (b.share_by_decade['2020'] ?? 0) - (a.share_by_decade['2020'] ?? 0)), [model]);
   return (
     <Panel id="archetype-trend">
       <SectionHead title="How the league's roles changed" small>
         Share of all minutes (players with {model.method.min_minutes.toLocaleString()}+ minutes) by role, each season. Before 1979-80 there were no threes, and before the mid-1970s no blocks, steals or usage, so early roles rest on fewer stats.
       </SectionHead>
-      <ChartCanvas config={config} tall testId="archetype-chart" />
+      <Pills options={VIEWS} value={view} onChange={setView} id="archetype-view" />
+      {view === 'each' ? (
+        <>
+          {role && <RoleDetail key={role.key} role={role} seasons={seasons} values={model.trend.shares[String(role.id)].map(v => v * 100)} onClose={() => onSelect(role.key)} />}
+          <div className="archetype-minis" data-testid="archetype-chart">
+            {ordered.map(a => (
+              <MiniTrend key={a.key} role={a} seasons={seasons} values={model.trend.shares[String(a.id)].map(v => v * 100)} max={max}
+                         active={a.key === selected} dimmed={!!selected && a.key !== selected} onSelect={() => onSelect(a.key)} />
+            ))}
+          </div>
+        </>
+      ) : (
+        <YearPie model={model} selected={selected} onSelect={onSelect} />
+      )}
+      <div className="similar-meta archetype-trend-note">
+        {view === 'each' && <span>The small charts share one scale (0 to {max}% of minutes), so heights compare across roles.</span>}
+        {role
+          ? <span>Showing <b>{role.name}</b>. <button type="button" className="pill-btn" onClick={() => document.getElementById('role-players')?.scrollIntoView({ behavior: 'smooth' })}>See its players &darr;</button></span>
+          : <span>Click a role to enlarge it and list its players.</span>}
+      </div>
     </Panel>
+  );
+}
+
+/** One role's share of league minutes over time, drawn as a line on the scale shared by every role. */
+function MiniTrend({ role, seasons, values, max, active, dimmed, onSelect }: {
+  role: Archetype; seasons: number[]; values: number[]; max: number; active: boolean; dimmed: boolean; onSelect: () => void;
+}) {
+  const [hover, setHover] = useState<number | null>(null);
+  const W = 300;
+  const H = 84;
+  const pts = useMemo(() => sparkPoints(values, W, H, max), [values, max]);
+  const peak = useMemo(() => peakOf(seasons, values), [seasons, values]);
+  const i = hover ?? values.length - 1;
+  const color = roleColor(role.key);
+  const then = role.share_by_decade['1980'];
+  const now = role.share_by_decade['2020'];
+  return (
+    <button type="button" className={`archetype-mini ${active ? 'active' : ''} ${dimmed ? 'dimmed' : ''}`} data-role={role.key} aria-pressed={active}
+            style={{ borderTopColor: color }} onClick={onSelect}>
+      <div className="archetype-head">
+        <span className="archetype-dot" style={{ background: color }} />
+        <span className="archetype-name">{role.name}</span>
+        <span className="mini-value">{values[i].toFixed(1)}%<small> {seasons[i]}</small></span>
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="mini-svg" role="img"
+           aria-label={`${role.name}: ${values[0].toFixed(0)}% of minutes in ${seasons[0]}, ${values[values.length - 1].toFixed(0)}% in ${seasons[seasons.length - 1]}`}
+           onMouseMove={e => { const r = e.currentTarget.getBoundingClientRect(); setHover(nearestIndex(e.clientX - r.left, r.width, values.length)); }}
+           onMouseLeave={() => setHover(null)}>
+        <line x1="0" x2={W} y1={H} y2={H} className="mini-base" />
+        <line x1="0" x2={W} y1={H / 2} y2={H / 2} className="mini-grid" />
+        <path d={areaPath(pts, H)} fill={color} opacity="0.18" />
+        <path d={linePath(pts)} fill="none" stroke={color} strokeWidth="2" vectorEffect="non-scaling-stroke" />
+        {hover !== null && <line x1={pts[hover][0]} x2={pts[hover][0]} y1="0" y2={H} className="mini-cursor" />}
+      </svg>
+      <div className="mini-axis"><span>{seasons[0]}</span><span>{seasons[seasons.length - 1]}</span></div>
+      <div className="similar-meta">
+        {peak && <div>Peak <b>{peak.value.toFixed(0)}%</b> in {peak.season}</div>}
+        <div>1980s {pct(then)} &rarr; 2020s {pct(now)}</div>
+      </div>
+    </button>
+  );
+}
+
+/** The picked role, enlarged: full-width chart with axes, decade gridlines, hover read-out and the role's description. */
+function RoleDetail({ role, seasons, values, onClose }: { role: Archetype; seasons: number[]; values: number[]; onClose: () => void }) {
+  const box = useRef<HTMLDivElement>(null);
+  const width = useWidth(box);
+  const [hover, setHover] = useState<number | null>(null);
+  const H = 320;
+  const m = { l: 46, r: 16, t: 18, b: 30 };
+  const max = sharedMax([values]);
+  const innerW = Math.max(10, width - m.l - m.r);
+  const innerH = H - m.t - m.b;
+  const pts = useMemo(() => sparkPoints(values, innerW, innerH, max), [values, innerW, innerH, max]);
+  const peak = peakOf(seasons, values);
+  const peakIdx = peak ? seasons.indexOf(peak.season) : -1;
+  const color = roleColor(role.key);
+  const i = hover ?? values.length - 1;
+  const x = (idx: number) => m.l + pts[idx][0];
+  const y = (idx: number) => m.t + pts[idx][1];
+  return (
+    <div className="archetype-detail" data-testid="archetype-detail" style={{ borderTopColor: color }}>
+      <div className="archetype-detail-head">
+        <span className="archetype-dot" style={{ background: color }} />
+        <span className="archetype-detail-name">{role.name}</span>
+        <button type="button" className="pill-btn" onClick={onClose} aria-label={`Close the ${role.name} chart`}>Close &times;</button>
+      </div>
+      <p className="archetype-desc">{role.description}</p>
+      <div className="archetype-detail-stats">
+        <span><b>{values[i].toFixed(1)}%</b> of minutes in {seasonLabel(seasons[i])}</span>
+        {peak && <span>Peak <b>{peak.value.toFixed(1)}%</b> in {seasonLabel(peak.season)}</span>}
+        <span>1980s <b>{pct(role.share_by_decade['1980'])}</b> &rarr; 2020s <b>{pct(role.share_by_decade['2020'])}</b></span>
+      </div>
+      <div ref={box} className="archetype-detail-chart">
+        {width > 0 && (
+          <svg width={width} height={H} role="img" aria-label={`${role.name}: share of league minutes by season`}
+               onMouseMove={e => { const r = e.currentTarget.getBoundingClientRect(); setHover(nearestIndex(e.clientX - r.left - m.l, innerW, values.length)); }}
+               onMouseLeave={() => setHover(null)}>
+            {yTicks(max).map(t => (
+              <g key={t}>
+                <line x1={m.l} x2={width - m.r} y1={m.t + innerH - (t / max) * innerH} y2={m.t + innerH - (t / max) * innerH} className={t === 0 ? 'mini-base' : 'mini-grid'} />
+                <text x={m.l - 8} y={m.t + innerH - (t / max) * innerH + 4} textAnchor="end" className="detail-tick">{t}%</text>
+              </g>
+            ))}
+            {decadeTicks(seasons).map(s => {
+              const idx = seasons.indexOf(s);
+              return <text key={s} x={x(idx)} y={H - 8} textAnchor="middle" className="detail-tick">{s}</text>;
+            })}
+            <g transform={`translate(${m.l},${m.t})`}>
+              <path d={areaPath(pts, innerH)} fill={color} opacity="0.22" />
+              <path d={linePath(pts)} fill="none" stroke={color} strokeWidth="2.5" />
+            </g>
+            {peakIdx >= 0 && hover === null && (
+              <g>
+                <circle cx={x(peakIdx)} cy={y(peakIdx)} r="5" fill={color} stroke="#1c1612" strokeWidth="2" />
+                <text x={Math.min(Math.max(x(peakIdx), m.l + 40), width - m.r - 40)} y={Math.max(y(peakIdx) - 10, 12)} textAnchor="middle" className="detail-label">Peak {peak!.value.toFixed(1)}%</text>
+              </g>
+            )}
+            {hover !== null && (
+              <g>
+                <line x1={x(hover)} x2={x(hover)} y1={m.t} y2={m.t + innerH} className="mini-cursor" />
+                <circle cx={x(hover)} cy={y(hover)} r="5" fill={color} stroke="#1c1612" strokeWidth="2" />
+                <text x={Math.min(Math.max(x(hover), m.l + 52), width - m.r - 52)} y={Math.max(y(hover) - 12, 12)} textAnchor="middle" className="detail-label">
+                  {seasonLabel(seasons[hover])}: {values[hover].toFixed(1)}%
+                </text>
+              </g>
+            )}
+          </svg>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** A pie of every role's share of league minutes in one season, with a slider (and play button) to move through the years. */
+function YearPie({ model, selected, onSelect }: { model: ArchetypeModel; selected: string; onSelect: (key: string) => void }) {
+  const seasons = model.trend.seasons;
+  const [idx, setIdx] = useState(seasons.length - 1);
+  const [playing, setPlaying] = useState(false);
+  const [hoverKey, setHoverKey] = useState<string | null>(null);
+  useEffect(() => {
+    if (!playing) return;
+    const t = setInterval(() => setIdx(i => {
+      if (i >= seasons.length - 1) { setPlaying(false); return i; }
+      return i + 1;
+    }), 220);
+    return () => clearInterval(t);
+  }, [playing, seasons.length]);
+  const roles = useMemo(() => [...model.archetypes].sort((a, b) => PIE_ORDER.indexOf(a.key) - PIE_ORDER.indexOf(b.key)), [model]);
+  const values = roles.map(a => model.trend.shares[String(a.id)][idx] * 100);
+  const slices = pieSlices(values);
+  const focus = hoverKey ?? selected;
+  const C = 190;
+  const R1 = 180;
+  const R0 = 104;
+  const rows = roles.map((a, k) => ({ a, v: values[k], s: slices[k] })).sort((p, q) => q.v - p.v);
+  const top = rows[0]?.v || 1;
+  return (
+    <div className="year-pie" data-testid="archetype-chart">
+      <div className="year-pie-body">
+        <svg viewBox={`0 0 ${C * 2} ${C * 2}`} className="year-pie-svg" role="img" aria-label={`Share of league minutes by role in ${seasonLabel(seasons[idx])}`}>
+          {roles.map((a, k) => {
+            const s = slices[k];
+            const dim = !!focus && focus !== a.key;
+            const [lx, ly] = polar(C, C, (R0 + R1) / 2, s.mid);
+            return (
+              <g key={a.key} className="pie-slice" data-role={a.key} opacity={dim ? 0.3 : 1} onClick={() => onSelect(a.key)}
+                 onMouseEnter={() => setHoverKey(a.key)} onMouseLeave={() => setHoverKey(null)} style={{ cursor: 'pointer' }}>
+                <path d={arcPath(C, C, R0, R1, s.start, s.end)} fill={roleColor(a.key)} stroke="#1c1612" strokeWidth="2" />
+                {s.fraction >= 0.05 && <text x={lx} y={ly + 4} textAnchor="middle" className="pie-label">{Math.round(values[k])}%</text>}
+              </g>
+            );
+          })}
+          <text x={C} y={C - 4} textAnchor="middle" className="pie-season">{seasonLabel(seasons[idx])}</text>
+          <text x={C} y={C + 22} textAnchor="middle" className="pie-sub">share of league minutes</text>
+        </svg>
+        <ul className="year-pie-legend">
+          {rows.map(({ a, v }) => (
+            <li key={a.key}>
+              <button type="button" className={`year-row ${selected === a.key ? 'active' : ''} ${focus && focus !== a.key ? 'dimmed' : ''}`} data-role={a.key}
+                      onClick={() => onSelect(a.key)} onMouseEnter={() => setHoverKey(a.key)} onMouseLeave={() => setHoverKey(null)}>
+                <span className="archetype-dot" style={{ background: roleColor(a.key) }} />
+                <span className="year-row-name">{a.name}</span>
+                <span className="year-row-bar"><span style={{ width: `${(v / top) * 100}%`, background: roleColor(a.key) }} /></span>
+                <span className="year-row-val">{v.toFixed(1)}%</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      </div>
+      <div className="year-controls">
+        <button type="button" className="pill-btn" id="year-play" onClick={() => { if (idx >= seasons.length - 1) setIdx(0); setPlaying(p => !p); }}>
+          {playing ? 'Pause' : 'Play'}
+        </button>
+        <span className="year-end">{seasons[0]}</span>
+        <input type="range" min={0} max={seasons.length - 1} value={idx} data-testid="year-slider" aria-label="Season"
+               onChange={e => { setPlaying(false); setIdx(Number(e.target.value)); }} />
+        <span className="year-end">{seasons[seasons.length - 1]}</span>
+      </div>
+    </div>
   );
 }
 
