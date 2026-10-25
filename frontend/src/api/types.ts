@@ -359,3 +359,11 @@ export interface PlayerH2H {
   meetings: { date: string; season: number; playoffs: boolean; game_ref: string; a_team: string | null; b_team: string | null; a_score: number | null; b_score: number | null;
               a: Record<string, number | null>; b: Record<string, number | null> }[];
 }
+
+export interface RecentSide { abbr: string; name: string; franchise: string | null; pts: number | null }
+export interface RecentTop { player_id: string; player: string; pts: number | null; trb: number | null; ast: number | null }
+export interface RecentGame {
+  game_ref: string; date: string; season: number; kind: 'regular' | 'playoffs' | 'play_in' | 'cup_final'; ot: number | null; complete: boolean;
+  home: RecentSide; away: RecentSide; winner: 'home' | 'away' | null; top: { home: RecentTop | null; away: RecentTop | null };
+}
+export interface RecentGames { dates: number; latest: string | null; games: RecentGame[] }

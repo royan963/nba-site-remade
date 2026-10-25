@@ -5,6 +5,7 @@ import type { LeaderRow, LeagueTrend } from '../api/types';
 import { ChartCanvas, ErrorNote, Loading, Panel, PlayButton, SeasonSlider, SectionHead, usePlayback } from '../components/ui';
 import { MONO, PALETTE, axis, baseOptions } from '../lib/chart';
 import { fmtInt, fmtNum, fmtPct } from '../lib/format';
+import { RecentGames } from './RecentGames';
 
 function eraLabel(season: number) {
   if (season < 1950) return 'BAA Founding Era';
@@ -97,6 +98,8 @@ function OverviewContent({ era, topScorer }: { era: LeagueTrend[]; topScorer?: L
           ))}
         </div>
       </div>
+
+      <RecentGames />
 
       <div className="scoreboard">
         <div className="scoreboard-top">

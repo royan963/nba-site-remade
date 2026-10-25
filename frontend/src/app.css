@@ -278,3 +278,21 @@ button.mvp-miss { background: none; border: 0; border-bottom: 1px solid var(--li
 .psr-heading { padding: 8px 14px 4px; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 1px; text-transform: uppercase; color: var(--chalk-dim); }
 /* a direct answer at the top of the results */
 .search-answer { margin: 0 0 16px; padding: 16px 20px; border: 1px solid var(--amber); border-left-width: 4px; border-radius: 4px; background: rgba(255,157,46,0.10); color: var(--chalk); font-size: 18px; line-height: 1.45; }
+
+/* ---------- Overview: recent games ---------- */
+.rg-day { margin-top: 18px; }
+.rg-date { font-family: var(--display, inherit); font-size: 15px; letter-spacing: .04em; text-transform: uppercase; margin: 0 0 8px; color: var(--chalk, #f1e9da); }
+.rg-date span { color: var(--chalk-dim, #a89f91); font-size: 11px; font-family: var(--mono, monospace); letter-spacing: 0; text-transform: none; margin-left: 8px; }
+.rg-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; }
+.rg-card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; }
+.rg-card-head { display: flex; justify-content: space-between; align-items: center; font-family: var(--mono, monospace); font-size: 10px; color: var(--chalk-dim, #a89f91); text-transform: uppercase; letter-spacing: .06em; min-height: 16px; }
+.rg-badge { border: 1px solid var(--amber-dim); color: var(--amber, #ff9d2e); border-radius: 10px; padding: 1px 8px; }
+.rg-team { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; color: var(--chalk-dim, #a89f91); }
+.rg-team.won { color: var(--chalk, #f1e9da); font-weight: 600; }
+.rg-name { color: inherit; text-decoration: none; }
+a.rg-name:hover { text-decoration: underline; }
+.rg-score { font-family: var(--mono, monospace); font-size: 18px; }
+.rg-tops { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
+.rg-tops.muted { color: var(--chalk-dim, #a89f91); font-style: italic; }
+.rg-top { display: flex; gap: 8px; align-items: baseline; }
+.rg-abbr { font-family: var(--mono, monospace); font-size: 10px; color: var(--chalk-dim, #a89f91); width: 30px; }

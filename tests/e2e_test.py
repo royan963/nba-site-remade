@@ -44,6 +44,25 @@ with sync_playwright() as p:
     open_page(page, '/')
     check(page.locator('.ticker-cell').count() == 5, 'hero ticker has 5 cells')
     check('LeBron James' in page.locator('#hero-ticker').inner_text(), 'all-time scorer comes from the API')
+    print('Recent games')
+    page.wait_for_selector('#recent-games .rg-card', timeout=15000)
+    dates = page.locator('#recent-games .rg-day').evaluate_all('els => els.map(e => e.dataset.date)')
+    check(len(dates) == 3 and dates == sorted(dates, reverse=True), f'recent games: the latest three game days, newest first ({dates})')
+    first = page.locator('#recent-games .rg-card').first
+    check(len(first.locator('.rg-team').all()) == 2 and all(t.strip().isdigit() for t in first.locator('.rg-score').all_inner_texts()), 'a game card shows two teams with their scores')
+    check(first.locator('.rg-team.won').count() == 1, 'the winner is highlighted')
+    check(page.locator('#recent-games .rg-day').first.locator('.rg-date').inner_text().split('\n')[0].count(',') == 1, 'each day has a dated heading')
+    n3 = page.locator('#recent-games .rg-card').count()
+    page.locator('#recent-games-window [data-value="7"]').click(); page.wait_for_timeout(1200)
+    check(page.locator('#recent-games .rg-day').count() == 7 and page.locator('#recent-games .rg-card').count() > n3, 'Last 7 shows more days and games')
+    page.locator('#recent-games-window [data-value="3"]').click(); page.wait_for_timeout(800)
+    with_top = page.locator('#recent-games .rg-top a')
+    if with_top.count():
+        href = with_top.first.get_attribute('href')
+        check(href.startswith('/players/'), 'a top scorer links to the player page')
+    team = page.locator('#recent-games a.rg-name').first
+    check((team.get_attribute('href') or '').startswith('/teams/'), 'team names link to the team page')
+
     start = page.locator('#sb-season').inner_text()
     page.locator('#season-slider').fill('1962')
     check(page.locator('#sb-season').inner_text() == '1962' and start != '1962', 'season slider moves the scoreboard')
