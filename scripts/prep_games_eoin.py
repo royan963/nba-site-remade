@@ -107,6 +107,16 @@ def name_key(n):
     return ' '.join(toks) if toks else None
 
 
+PLAY_STATS = ['points', 'fieldGoalsAttempted', 'freeThrowsAttempted', 'reboundsTotal', 'assists', 'steals', 'blocks', 'turnovers', 'foulsPersonal']
+
+
+def played_mask(df):
+    """Rows of players who played: minutes above zero, or minutes left blank but some real stat recorded (the source leaves
+    minutes blank for every player in a few games, and the points still add up)."""
+    stats = df[PLAY_STATS].apply(pd.to_numeric, errors='coerce').fillna(0)
+    return (df['mp'].fillna(0) > 0) | (df['mp'].isna() & (stats.abs().sum(axis=1) > 0))
+
+
 def team_from_home_flag(home, home_abbr, away_abbr):
     """Team of each player row from the source's home flag (1 = home team). The team-id column is empty for some rows."""
     return pd.Series(np.where(pd.Series(home).astype(float) == 1, home_abbr, away_abbr), index=pd.Series(home).index)
@@ -116,6 +126,112 @@ def drop_pending(games, pg):
     """Remove games this source added earlier that were incomplete (and their rows), so the next run can redo them."""
     pending = set(games.loc[(games['src'] == SRC) & ~games['complete'].astype(bool), 'game_ref'])
     return games[~games['game_ref'].isin(pending)], pg[~pg['game_ref'].isin(pending)]
+
+
+STUBS_FILE = 'new_players.json'
+CAREER_COLS = ['player_id', 'player', 'pos', 'hof', 'ht_in_in', 'wt', 'seasons_played', 'first_season', 'last_season', 'g', 'pts', 'trb', 'ast', 'stl', 'blk',
+               'fg', 'fga', 'x3p', 'x3pa', 'ft', 'fta', 'ppg', 'rpg', 'apg', 'ws', 'vorp', 'all_star']
+
+
+def _num(v):
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return None if np.isnan(f) else f
+
+
+def bbref_id(first, last, taken):
+    """Basketball-Reference's id pattern: first five letters of the last name, first two of the first name, then 01, 02, ...
+    (the first number not already taken)."""
+    def letters(s, n):
+        s = unicodedata.normalize('NFKD', str(s or '').replace('ø', 'o').replace('ł', 'l').replace('đ', 'd'))
+        return re.sub('[^a-z]', '', ''.join(c for c in s if not unicodedata.combining(c)).lower())[:n]
+    base = letters(last, 5) + letters(first, 2)
+    n = 1
+    while f'{base}{n:02d}' in taken:
+        n += 1
+    return f'{base}{n:02d}'
+
+
+def position_from_flags(guard, forward, center):
+    """G, F, C or a pair (G-F, F-C, G-C) from the source's position flags; None if it gives none."""
+    g, f, c = (bool(_num(x) == 1) for x in (guard, forward, center))
+    name = '-'.join(p for p, on in (('G', g), ('F', f), ('C', c)) if on)
+    return name or None
+
+
+def age_on(birth, season):
+    """Age on February 1 of the season's ending year, which is how Basketball-Reference lists a season's age."""
+    b = pd.to_datetime(birth, errors='coerce') if birth is not None else pd.NaT
+    if pd.isna(b):
+        return None
+    return season - b.year - ((2, 1) < (b.month, b.day))
+
+
+def provisional_player(person, totals, player_id, team, season):
+    """A career row and a season row, in the site's formats, for a player the official table doesn't have yet."""
+    first, last = str(person.get('firstName') or '').strip(), str(person.get('lastName') or '').strip()
+    pos = position_from_flags(person.get('guard'), person.get('forward'), person.get('center'))
+    g = int(totals['g'])
+    per = lambda v: round(v / g, 1) if g else None
+    pct = lambda made, att: round(made / att, 4) if att else None
+    ht, wt = _num(person.get('heightInches')), _num(person.get('bodyWeightLbs'))
+    t = {k: (int(totals[k]) if k not in ('mp',) else float(totals[k])) for k in totals}
+    career = {'player_id': player_id, 'player': f'{first} {last}'.strip(), 'pos': pos, 'hof': False,
+              'ht_in_in': None if ht is None else int(ht), 'wt': None if wt is None else int(wt),
+              'seasons_played': 1, 'first_season': season, 'last_season': season, 'g': g, 'pts': t['pts'], 'trb': t['trb'], 'ast': t['ast'],
+              'stl': t['stl'], 'blk': t['blk'], 'fg': t['fg'], 'fga': t['fga'], 'x3p': t['x3p'], 'x3pa': t['x3pa'], 'ft': t['ft'], 'fta': t['fta'],
+              'ppg': per(t['pts']), 'rpg': per(t['trb']), 'apg': per(t['ast']), 'ws': None, 'vorp': None, 'all_star': 0}
+    season_row = {'season': season, 'player_id': player_id, 'player': career['player'], 'age': age_on(person.get('birthDate'), season), 'team': team,
+                  'pos': pos, 'g': g, 'gs': t['gs'], 'mp': per(t['mp']), 'pts': per(t['pts']), 'trb': per(t['trb']), 'ast': per(t['ast']),
+                  'stl': per(t['stl']), 'blk': per(t['blk']), 'fg_pct': pct(t['fg'], t['fga']), 'x3p_pct': pct(t['x3p'], t['x3pa']),
+                  'ft_pct': pct(t['ft'], t['fta']), 'x3pa': per(t['x3pa']), 'fta': per(t['fta'])}
+    return career, season_row
+
+
+def reconcile_stubs(stubs, official):
+    """Provisional players once the official table has caught up. Returns (stubs to keep, {provisional id: official id}).
+    A provisional player is dropped if the official table has that id, and remapped if a player who has played in the
+    newest season carries the same name under another id. An older namesake never counts."""
+    ids = {o['player_id'] for o in official}
+    recent = {}
+    for o in official:
+        if (o.get('last_season') or 0) >= FIRST_NEW_SEASON:
+            recent.setdefault(name_key(o['player']), []).append(o['player_id'])
+    keep, remap = [], {}
+    for s in stubs:
+        if s['player_id'] in ids:
+            continue
+        hits = recent.get(name_key(s['player']), [])
+        if len(hits) == 1:
+            remap[s['player_id']] = hits[0]
+        else:
+            keep.append(s)
+    return keep, remap
+
+
+def apply_remap(remap):
+    """Rewrite player ids in the newest seasons' player-game files after a provisional player became an official one."""
+    if not remap:
+        return
+    for f in sorted(OUT.glob('player_games_*.csv.gz')):
+        if int(f.name.split('_')[2].split('.')[0]) < FIRST_NEW_SEASON:
+            continue
+        pg = pd.read_csv(f)
+        if pg['player_id'].isin(list(remap)).any():
+            write_season(int(f.name.split('_')[2].split('.')[0]), None, pg.assign(player_id=pg['player_id'].replace(remap)))
+
+
+def read_stubs():
+    f = DATA / STUBS_FILE
+    return json.loads(f.read_text(encoding='utf8')) if f.exists() else {'players': [], 'seasons': [], 'source': {}}
+
+
+def stub_totals(rows):
+    """Season totals for one player from his regular-season game rows (the columns of PlayerStatistics, already renamed)."""
+    return {'g': len(rows), 'gs': int(rows['started'].sum()), 'mp': float(rows['mp'].sum()),
+            **{k: int(rows[k].fillna(0).sum()) for k in ('pts', 'trb', 'ast', 'stl', 'blk', 'fg', 'fga', 'x3p', 'x3pa', 'ft', 'fta')}}
 
 
 def is_duplicate(game, existing):
@@ -198,7 +314,7 @@ def load_new(folder):
     games['season'] = games['gameId'].map(game_season)
     games = games[games['gameType'].map(keep_game_type)].copy()
     games = games[games['homeScore'].notna() & games['awayScore'].notna()]
-    use = ['gameId', 'personId', 'firstName', 'lastName', 'home', 'numMinutes', 'startingPosition'] + list(SRC_COLS)
+    use = sorted({'gameId', 'personId', 'firstName', 'lastName', 'home', 'numMinutes', 'startingPosition'} | set(SRC_COLS) | set(PLAY_STATS))
     ps = pd.read_csv(folder / 'PlayerStatistics.csv', usecols=use, low_memory=False)
     ps = ps[ps['gameId'].isin(games['gameId'])].copy()
     ps['mp'] = ps['numMinutes'].map(minutes_to_float)
@@ -215,8 +331,7 @@ def read_season(season):
 def write_season(season, games, pg=None):
     """Write the games file, and the player-games file unless `pg` is None (unchanged files are left byte-identical)."""
     OUT.mkdir(parents=True, exist_ok=True)
-    games = games.sort_values(['date', 'game_ref'])
-    parts = [('games', games)]
+    parts = [('games', games.sort_values(['date', 'game_ref']))] if games is not None else []
     if pg is not None:
         parts.append(('player_games', pg.sort_values(['game_ref', 'team', 'player_id'])))
     for name, df in parts:
@@ -236,9 +351,26 @@ def build(folder):
         raise SystemExit(f'no abbreviation for NBA team ids {sorted(teams_now - set(abbr))}')
     sd = json.loads((DATA / 'player_seasons.json').read_text(encoding='utf8'))
     by_team, by_name, by_last = player_index(sd)
-    known = {r[0] for r in json.loads((DATA / 'player_career.json').read_text(encoding='utf8'))['rows']}
+    career = json.loads((DATA / 'player_career.json').read_text(encoding='utf8'))
+    official = [dict(zip(career['columns'], r)) for r in career['rows']]
+    known = {o['player_id'] for o in official}
+    old = read_stubs()
+    kept, remap = reconcile_stubs(old['players'], official)
+    apply_remap(remap)
+    if remap or len(kept) != len(old['players']):
+        print(f'provisional players: {len(old["players"]) - len(kept) - len(remap)} replaced by official rows, {len(remap)} remapped to official ids')
+    stub_source = {p['player_id']: old['source'][p['player_id']] for p in kept if p['player_id'] in old['source']}
+    stub_names = {p['player_id']: p['player'] for p in kept}
+    taken = set(known) | set(stub_names)
+    players_csv = pd.read_csv(folder / 'Players.csv', low_memory=False) if (folder / 'Players.csv').exists() else pd.DataFrame(columns=['personId'])
+    people = players_csv.drop_duplicates('personId').set_index('personId')
+    for pid, src in stub_source.items():
+        k = name_key(stub_names[pid])
+        by_team[(k, src['team'], FIRST_NEW_SEASON)] = pid
+        by_name.setdefault(k, set()).add(pid)
+    known |= set(stub_names)
     # player rows that played: minutes > 0
-    ps = ps[ps['mp'].fillna(0) > 0].copy()
+    ps = ps[played_mask(ps)].copy()
     ps['key'] = (ps['firstName'].fillna('') + ' ' + ps['lastName'].fillna('')).map(name_key)
     summary = {}
     new['kind'] = new['gameId'].map(game_kind)
@@ -262,6 +394,21 @@ def build(folder):
             p = p.merge(gs[['gameId', 'game_ref', 'home', 'away']].rename(columns={'home': 'home_abbr', 'away': 'away_abbr'}), on='gameId')
             p['team'] = team_from_home_flag(p['home'], p['home_abbr'], p['away_abbr']).values
             p['player_id'] = [resolve_player(k, t, season, by_team, by_name, by_last) for k, t in zip(p['key'], p['team'])]
+            if season >= FIRST_NEW_SEASON:
+                for person_id, grp in p[p['player_id'].isna()].groupby('personId'):
+                    first = grp.iloc[0]
+                    info = people.loc[person_id].to_dict() if person_id in people.index else {'firstName': first['firstName'], 'lastName': first['lastName']}
+                    info.setdefault('firstName', first['firstName'])
+                    info.setdefault('lastName', first['lastName'])
+                    pid = bbref_id(info.get('firstName'), info.get('lastName'), taken)
+                    taken.add(pid)
+                    stub_names[pid] = f"{str(info.get('firstName') or '').strip()} {str(info.get('lastName') or '').strip()}".strip()
+                    stub_source[pid] = {'person_id': int(person_id), 'team': grp['team'].mode().iloc[0]}
+                    k = name_key(stub_names[pid])
+                    by_team[(k, stub_source[pid]['team'], season)] = pid
+                    by_name.setdefault(k, set()).add(pid)
+                    known.add(pid)
+                p['player_id'] = [resolve_player(k, t, season, by_team, by_name, by_last) for k, t in zip(p['key'], p['team'])]
             unmatched = p[p['player_id'].isna() | ~p['player_id'].isin(known)]
             p = p[p['player_id'].notna() & p['player_id'].isin(known)].copy()
             p['started'] = p['startingPosition'].fillna('').astype(str).str.strip().ne('')
@@ -289,7 +436,36 @@ def build(folder):
         summary[season]['cup_final'] = int((all_games['kind'] == 'cup_final').sum())
     if missing:
         print('team ids with no abbreviation (not in 2024-2026 games):', missing)
+    summary['provisional_players'] = write_stubs(new, ps, abbr, people, stub_source, stub_names)
     return summary
+
+
+def write_stubs(new, ps, abbr, people, stub_source, stub_names):
+    """data/new_players.json: each provisional player's career row and newest-season row, from all his regular-season games so far."""
+    meta = new[(new['season'] >= FIRST_NEW_SEASON) & (new['kind'] == 'regular')]
+    meta = meta.assign(home_abbr=meta['hometeamId'].map(abbr), away_abbr=meta['awayteamId'].map(abbr))[['gameId', 'season', 'home_abbr', 'away_abbr']]
+    rows = ps[ps['gameId'].isin(meta['gameId'])].merge(meta, on='gameId')
+    rows['team'] = team_from_home_flag(rows['home'], rows['home_abbr'], rows['away_abbr']).values
+    rows['started'] = rows['startingPosition'].fillna('').astype(str).str.strip().ne('')
+    rows = rows.rename(columns=SRC_COLS)
+    players, seasons, source = [], [], {}
+    for pid, src in sorted(stub_source.items(), key=lambda kv: stub_names[kv[0]]):
+        mine = rows[rows['personId'] == src['person_id']]
+        if mine.empty:
+            continue
+        info = people.loc[src['person_id']].to_dict() if src['person_id'] in people.index else {}
+        first, _, last = stub_names[pid].partition(' ')
+        info.setdefault('firstName', first)
+        info.setdefault('lastName', last)
+        season = int(mine['season'].max())
+        mine = mine[mine['season'] == season]
+        career, season_row = provisional_player(info, stub_totals(mine), pid, mine['team'].mode().iloc[0], season)
+        players.append(career)
+        seasons.append(season_row)
+        source[pid] = {'person_id': src['person_id'], 'team': mine['team'].mode().iloc[0]}
+    (DATA / STUBS_FILE).write_text(json.dumps({'as_of': str(new['date'].max()), 'players': players, 'seasons': seasons, 'source': source},
+                                              indent=1, ensure_ascii=False) + '\n', encoding='utf8')
+    return len(players)
 
 
 if __name__ == '__main__':
