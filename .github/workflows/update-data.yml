@@ -37,7 +37,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install -r requirements.txt kaggle playwright
+          pip install -r requirements.txt kaggle six playwright
           playwright install --with-deps chromium
 
       - name: Update data, rebuild and test
