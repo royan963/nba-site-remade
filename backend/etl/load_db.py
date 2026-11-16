@@ -70,7 +70,9 @@ def build_rows():
         extra = read('new_players')
         official = {p['player_id'] for p in players}
         players += [p for p in extra['players'] if p['player_id'] not in official]
-        seasons += [r for r in extra['seasons'] if r['player_id'] not in official]
+        # the season rebuilt from box scores (scripts/prep_season_live.py) already has the rookies' rows
+        have = {(r['player_id'], r['season']) for r in seasons}
+        seasons += [r for r in extra['seasons'] if r['player_id'] not in official and (r['player_id'], r['season']) not in have]
     for p in players:
         p['name_search'] = normalize_name(p['player'])
     known = {p['player_id'] for p in players}
@@ -329,6 +331,8 @@ def load(url=None, quiet=False):
              if champ else ''},
             {'key': 'contracts', 'value': json.dumps({k: con[k] for k in ('season', 'as_of', 'rules')}) if con else ''},
             {'key': 'projection_model', 'value': json.dumps({k: v for k, v in proj.items() if k != 'players'}) if proj else ''},
+            # how the newest season's stats were built: the main dataset, or the daily box scores (scripts/prep_season_live.py)
+            {'key': 'live_season', 'value': (DATA / 'live_season.json').read_text(encoding='utf-8') if (DATA / 'live_season.json').exists() else ''},
         ])
     if not quiet:
         target = engine.url.render_as_string(hide_password=True)

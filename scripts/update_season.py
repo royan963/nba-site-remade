@@ -300,15 +300,6 @@ def main():
     step('Regenerating data/*.json')
     if not run([sys.executable, 'scripts/prep_data.py', str(csv_dir)]):
         restore('prep_data.py failed')
-    step('Training the archetype model')
-    if not run([sys.executable, 'scripts/train_archetypes.py']):
-        restore('train_archetypes.py failed')
-    step('Building similar players')
-    if not run([sys.executable, 'scripts/train_similarity.py']):
-        restore('train_similarity.py failed')
-    step('Training the projection model')
-    if not run([sys.executable, 'scripts/train_projections.py']):
-        restore('train_projections.py failed')
     if not args.no_games and (args.rebuild_base or args.box_scores_zip):
         step('Getting the box-score dataset (to rebuild seasons through 2023-24)')
         get_box_scores(args)
@@ -340,6 +331,20 @@ def main():
         get_eoin()
         if not run([sys.executable, 'scripts/prep_games_eoin.py', str(RAW_EOIN)]):
             restore('prep_games_eoin.py failed')
+    # The main dataset can lag the season by a week or more; the box scores above are a day old. Rebuild the season in
+    # progress from them (it keeps the main dataset's numbers once they've caught up), then train every model on the result.
+    step('Rebuilding the season in progress from the box scores')
+    if not run([sys.executable, 'scripts/prep_season_live.py']):
+        restore('prep_season_live.py failed')
+    step('Training the archetype model')
+    if not run([sys.executable, 'scripts/train_archetypes.py']):
+        restore('train_archetypes.py failed')
+    step('Building similar players')
+    if not run([sys.executable, 'scripts/train_similarity.py']):
+        restore('train_similarity.py failed')
+    step('Training the projection model')
+    if not run([sys.executable, 'scripts/train_projections.py']):
+        restore('train_projections.py failed')
     # after the Deo Cheng step, so the newest season's MVP vote is in before training
     step('Training the MVP model')
     if not run([sys.executable, 'scripts/train_mvp.py']):

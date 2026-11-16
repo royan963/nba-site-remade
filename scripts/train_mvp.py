@@ -15,6 +15,7 @@ Usage:  pip install scikit-learn && python3 scripts/train_mvp.py
 """
 import json
 import math
+import sys
 import time
 from pathlib import Path
 
@@ -42,8 +43,11 @@ def frame(name):
     return pd.DataFrame(d['rows'], columns=d['columns']) if isinstance(d, dict) else pd.DataFrame(d)
 
 
-def build_features() -> pd.DataFrame:
-    ps = frame('player_seasons')
+def build_features(frames: dict | None = None, live: int | None = None) -> pd.DataFrame:
+    """Features for every player-season. frames: data tables to use instead of data/*.json (for snapshots of past
+    seasons); live: a season to treat as in progress (default: the latest season, if it has no vote yet)."""
+    frame_ = (lambda name: frames[name] if frames and name in frames else frame(name))
+    ps = frame_('player_seasons')
     stints = ps[~ps['team'].isin(MULTI)]
     # one row per player-season: the combined row for traded players
     seasons = ps.sort_values('team', key=lambda t: ~t.isin(MULTI)).drop_duplicates(['player_id', 'season'])
@@ -51,10 +55,10 @@ def build_features() -> pd.DataFrame:
     main_team = stints.sort_values('g', ascending=False).drop_duplicates(['player_id', 'season'])[['player_id', 'season', 'team']]
     df = seasons.drop(columns='team').merge(main_team, on=['player_id', 'season'], how='left')
 
-    adv = frame('player_advanced')
+    adv = frame_('player_advanced')
     df = df.merge(adv, on=['player_id', 'season'], how='left')
 
-    teams = frame('team_geo')[['season', 'abbr', 'w', 'l']].rename(columns={'abbr': 'team'})
+    teams = frame_('team_geo')[['season', 'abbr', 'w', 'l']].rename(columns={'abbr': 'team'})
     teams['win_pct'] = teams['w'] / (teams['w'] + teams['l'])
     teams['team_rank'] = teams.groupby('season')['win_pct'].rank(ascending=False, method='min')
     df = df.merge(teams[['season', 'team', 'win_pct', 'team_rank']], on=['season', 'team'], how='left')
@@ -68,9 +72,9 @@ def build_features() -> pd.DataFrame:
     df['g_actual'] = df['g']
     df['pace'] = 1.0
     voted = set(frame('player_award_shares').query("award == 'nba mvp'")['season'])
-    latest = int(df['season'].max())
+    latest = int(df['season'].max()) if live is None else live
     league_gp = float(teams.loc[teams['season'] == latest, 'team_gp'].mean())
-    in_progress = latest not in voted and league_gp < SEASON_GAMES - 0.5
+    in_progress = (latest not in voted or live is not None) and league_gp < SEASON_GAMES - 0.5
     if in_progress:
         cur = df['season'] == latest
         gp = df.loc[cur, 'team_gp'].fillna(league_gp).clip(lower=1)
@@ -78,9 +82,10 @@ def build_features() -> pd.DataFrame:
         df.loc[cur, 'g'] = (df.loc[cur, 'g'] * df.loc[cur, 'pace']).clip(upper=SEASON_GAMES)
         for col in ('ws', 'vorp'):
             df.loc[cur, col] = df.loc[cur, col] * df.loc[cur, 'pace']
-    PROGRESS.update(in_progress=bool(in_progress), season=latest, team_games=round(league_gp, 1), season_games=SEASON_GAMES)
+    if live is None:
+        PROGRESS.update(in_progress=bool(in_progress), season=latest, team_games=round(league_gp, 1), season_games=SEASON_GAMES)
 
-    env = frame('league_env').set_index('season')
+    env = frame_('league_env').set_index('season')
     df['pts_idx'] = df['pts'] / df['mp'] * 36 / df['season'].map(env['pts36'])
     df['ts_rel'] = df['ts_pct'] / df['season'].map(env['ts_pct'])
 
@@ -225,6 +230,85 @@ def preseason(df: pd.DataFrame, last_voted: int):
     return metrics, cur
 
 
+# ---- how sure to be mid-season ------------------------------------------------------------------------
+# The win chances above are calibrated on full seasons, where the only unknown left is the vote. Mid-season the
+# rest of the season is unknown too, so the same gap in predicted vote share means less. Past seasons are rebuilt
+# as they stood after k games (from the box scores, scripts/season_from_games.py) and scored by a model trained
+# only on earlier seasons. Mid-season chances are then proportional to predicted share raised to a power that
+# grows through the season, power(g) = c * (g / 82) ** b, fit to who actually won. (Tested: this is far better
+# calibrated mid-season than the full-season softmax, which made the leader ~50-65% when leaders won ~30%.)
+LIVE_CALIBRATION = Path(__file__).resolve().parent / 'mvp_live_calibration.json'
+LIVE_SEASONS = [s for s in range(2013, 2025) if s not in (2020, 2021)]    # clean box scores, 82-game schedules
+LIVE_CHECKPOINTS = (8, 15, 25, 41, 60)
+
+
+def snapshot_features(season: int, k: int, est_model: dict, base: dict):
+    """Features for one past season as it stood after the median team had played k games."""
+    import prep_season_live as L
+    S = L.S
+    through = S.date_after_games(season, k)
+    teams, st, comb, allrows, lg = L.build(season, est_model, through)
+    ident = L.identities(season, set(allrows['player_id']), strict=False)
+    ps = pd.DataFrame(L.season_rows(allrows, ident, season), columns=base['player_seasons'].columns)
+    adv = pd.DataFrame(L.advanced_rows(st, comb, season), columns=base['player_advanced'].columns)
+    tg = base['team_geo'][base['team_geo']['season'] == season].copy()
+    t = teams.set_index('team')
+    tg['w'], tg['l'] = tg['abbr'].map(t['w']).astype(float), tg['abbr'].map(t['l']).astype(float)
+    env = base['league_env'].copy()
+    mins = 240.0 * lg['team_games']
+    env.loc[env['season'] == season, 'pts36'] = lg['pts'] / mins * 36
+    env.loc[env['season'] == season, 'ts_pct'] = lg['pts'] / (2 * (lg['fga'] + 0.44 * lg['fta']))
+    df = build_features({'player_seasons': ps, 'player_advanced': adv, 'team_geo': tg, 'league_env': env}, live=season)
+    return df[df['season'] == season], float((teams['g']).mean())
+
+
+def calibrate_live(t_full: float) -> dict:          # t_full: kept for the signature; the full-season softmax is unchanged
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import prep_season_live as L
+    est_model = json.loads(L.MODEL.read_text())
+    full = build_features()
+    hist = full[full['season'] < min(LIVE_SEASONS)]
+    hist = hist[hist['season'] <= hist.loc[hist['share'] > 0, 'season'].max()]
+    m = model().fit(hist[FEATURES], hist['share'])                      # never saw the seasons it is checked on
+    base = {n: frame(n) for n in ('player_seasons', 'player_advanced', 'team_geo', 'league_env')}
+    snaps = []
+    for season in LIVE_SEASONS:
+        for k in LIVE_CHECKPOINTS:
+            df, gp = snapshot_features(season, k, est_model, base)
+            df = df[df['eligible']]
+            pred = pd.Series(m.predict(df[FEATURES]).clip(min=0), index=df.index)
+            winner = df.index[df['winner']][0] if df['winner'].any() else None     # an MVP not yet in the field counts as a miss
+            snaps.append({'season': season, 'k': k, 'gp': gp, 'pred': pred, 'winner': winner})
+        print(f'  {season}: snapshots after {", ".join(map(str, LIVE_CHECKPOINTS))} games', flush=True)
+
+    def nll(cb):
+        c, b = cb
+        return -sum(math.log(max(share_probabilities(x['pred'], c * (x['gp'] / SEASON_GAMES) ** b).get(x['winner'], 1e-9), 1e-9))
+                    for x in snaps)
+    c, b = min(((c, b) for c in np.arange(1.0, 8.01, 0.1) for b in np.arange(0.0, 2.01, 0.05)), key=nll)
+    by_k = []
+    for k in LIVE_CHECKPOINTS:
+        xs = [x for x in snaps if x['k'] == k]
+        power = c * (k / SEASON_GAMES) ** b
+        hits = [x['winner'] is not None and x['pred'].idxmax() == x['winner'] for x in xs]
+        top3 = [x['winner'] is not None and x['winner'] in x['pred'].nlargest(3).index for x in xs]
+        fav = [float(share_probabilities(x['pred'], power).max()) for x in xs]
+        by_k.append({'games': k, 'leader_won': round(float(np.mean(hits)), 3), 'winner_in_top3': round(float(np.mean(top3)), 3),
+                     'avg_leader_chance': round(float(np.mean(fav)), 3), 'power': round(float(power), 2)})
+        print(f"  after {k} games: the leader won {by_k[-1]['leader_won']:.0%}, winner in top 3 {by_k[-1]['winner_in_top3']:.0%}; "
+              f"the leader's chance averages {by_k[-1]['avg_leader_chance']:.0%}")
+    out = {'seasons': LIVE_SEASONS, 'model_trained_through': int(hist['season'].max()),
+           'c': round(float(c), 2), 'b': round(float(b), 2), 'by_games': by_k}
+    LIVE_CALIBRATION.write_text(json.dumps(out, indent=1))
+    print(f'wrote {LIVE_CALIBRATION.name}: power(g) = {c:.2f} * (g/82)^{b:.2f}')
+    return out
+
+
+def live_power(team_games: float, cal: dict) -> float:
+    g = min(max(team_games, LIVE_CHECKPOINTS[0]), SEASON_GAMES)
+    return cal['c'] * (g / SEASON_GAMES) ** cal['b']
+
+
 def main():
     started = time.time()
     df = build_features()
@@ -281,11 +365,21 @@ def main():
     cur = df[df['season'] == latest].copy()
     cur['pred'] = final.predict(cur[FEATURES]).clip(min=0) if not has_votes else hist.loc[hist['season'] == latest, 'pred']
 
-    def rows(g, n):
+    live_cal, live_pow = None, None
+    if PROGRESS.get('in_progress') and not has_votes:
+        if '--calibrate-live' in sys.argv or not LIVE_CALIBRATION.exists():
+            print('calibrating mid-season win chances on past seasons (about a minute)')
+            calibrate_live(float(temperature))
+        live_cal = json.loads(LIVE_CALIBRATION.read_text())
+        live_pow = live_power(PROGRESS['team_games'], live_cal)
+        print(f"mid-season: chances in proportion to predicted share ^ {live_pow:.2f} at {PROGRESS['team_games']} games")
+
+    def rows(g, n, power=None):
         g = g.copy()
         g['win_prob'] = 0.0
         el = g['eligible']
-        g.loc[el, 'win_prob'] = season_probabilities(g.loc[el, 'pred'], temperature)
+        g.loc[el, 'win_prob'] = (share_probabilities(g.loc[el, 'pred'], power) if power is not None
+                                 else season_probabilities(g.loc[el, 'pred'], temperature))
         g = g.sort_values(['eligible', 'pred'], ascending=[False, False]).head(n)
         out = []
         for rank, (_, r) in enumerate(g.iterrows(), start=1):
@@ -316,7 +410,7 @@ def main():
             top.append(w)
         candidates += top
     if not has_votes:
-        for c in rows(cur, 15):
+        for c in rows(cur, 15, live_pow):
             c['actual_rank'] = None
             candidates.append(c)
 
@@ -343,7 +437,8 @@ def main():
         'latest_season': latest, 'latest_has_votes': has_votes, 'games_rule_season': GAMES_RULE_SEASON,
         'games_rule': {'min': RULE_GAMES, 'hard_min': HARD_MIN_GAMES},
         'metrics': metrics, 'importances': importances, 'misses': misses, 'preseason': pre,
-        'progress': PROGRESS if not has_votes else None,
+        'progress': {**PROGRESS, 'power': live_pow and round(live_pow, 2),
+                     'calibration': live_cal and {k: live_cal[k] for k in ('seasons', 'by_games')}} if not has_votes else None,
         'columns': list(candidates[0].keys()), 'rows': [list(c.values()) for c in candidates],
     }
     (DATA / 'mvp_model.json').write_text(json.dumps(out, allow_nan=False))

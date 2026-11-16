@@ -123,7 +123,11 @@ export interface LeagueTrend {
 
 export interface LeagueShooting { season: number; [key: string]: number | null }
 
-export interface Meta { first_season: number; latest_season: number; loaded_at: string; similarity_features: string[]; players: number; playoffs_through: number; series_through: number; playoffs_partial?: number[] }
+export interface LiveSeason {
+  season: number; source: 'box_scores' | 'official'; through?: string; games: number; official_games?: number; estimated?: string[];
+  estimate_accuracy?: Record<string, { mae_500_min: number; corr_500_min: number }>; estimate_tested_on?: number;
+}
+export interface Meta { first_season: number; latest_season: number; loaded_at: string; similarity_features: string[]; players: number; playoffs_through: number; series_through: number; playoffs_partial?: number[]; live_season?: LiveSeason | null }
 
 export type Align = 'experience' | 'age' | 'calendar';
 export type Basis = 'raw' | 'per100' | 'index';
@@ -187,7 +191,8 @@ export interface MvpModel {
   misses: { season: number; predicted: string; actual: string; predicted_name: string | null; actual_name: string | null }[];
   latest_season: number; latest_has_votes: boolean; games_rule_season: number; games_rule: { min: number; hard_min: number };
   preseason: { season: number; base_season: number; metrics: { seasons: number; top1: number; top3: number; baseline_top1: number; favorite_prob: number; features: string[] } } | null;
-  progress?: { in_progress: boolean; season: number; team_games: number; season_games: number } | null;
+  progress?: { in_progress: boolean; season: number; team_games: number; season_games: number; power?: number | null;
+    calibration?: { seasons: number[]; by_games: { games: number; leader_won: number; winner_in_top3: number; avg_leader_chance: number }[] } | null } | null;
   seasons: number[];
 }
 export interface MvpCandidate {

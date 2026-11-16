@@ -250,6 +250,11 @@ def test_mvp_live_race(client):
         assert all(c['g'] <= prog['team_games'] + 5 for c in r['candidates'])
     probs = [c['win_prob'] for c in r['candidates']]
     assert sum(probs) <= 1.0001 and probs[0] == max(probs)
+    if prog['in_progress'] and prog['team_games'] < 30 and prog.get('calibration'):
+        # calibrated on past seasons rebuilt game by game: this early, leaders have won about a third of the time
+        cal = prog['calibration']
+        assert cal and len(cal['seasons']) >= 8 and all(0 <= x['leader_won'] <= 1 for x in cal['by_games'])
+        assert probs[0] < 0.6
 
 
 def test_mvp_preseason_race(client):
