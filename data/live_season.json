@@ -1,0 +1,33 @@
+{
+ "season": 2027,
+ "source": "box_scores",
+ "through": "2026-11-15",
+ "games": 194.0,
+ "official_games": 88.0,
+ "players": 470,
+ "teams": 30,
+ "estimated": [
+  "ws",
+  "ws_48",
+  "bpm",
+  "obpm",
+  "dbpm",
+  "vorp"
+ ],
+ "estimate_accuracy": {
+  "bpm": {
+   "mae_500_min": 0.4474,
+   "corr_500_min": 0.9839
+  },
+  "obpm": {
+   "mae_500_min": 0.3448,
+   "corr_500_min": 0.9881
+  },
+  "ws_48": {
+   "mae_500_min": 0.0061,
+   "corr_500_min": 0.9959
+  }
+ },
+ "estimate_tested_on": 2024,
+ "fingerprint": "2811b88b802cc2d72ad3148ccbe148d87648c4e2"
+}
