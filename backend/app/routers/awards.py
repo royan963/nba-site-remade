@@ -83,6 +83,7 @@ def champion_model(response: Response, conn=Depends(get_conn)):
     cc = s.champion_candidates
     seasons = [r for (r,) in conn.execute(select(cc.c.season).distinct().order_by(cc.c.season.desc()))]
     return {**{k: info[k] for k in ('metrics', 'weights', 'misses', 'latest_season', 'latest_has_champion', 'preseason')},
+            'progress': info.get('progress'),
             'seasons': seasons}
 
 

@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect } from 'react';
 import { Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom';
 import { useApi } from './api/hooks';
-import type { Meta } from './api/types';
+import type { LiveSeason, Meta } from './api/types';
 import { Loading } from './components/ui';
 import { fmtInt } from './lib/format';
 import { AccountMenu } from './components/account';
@@ -96,12 +96,41 @@ export default function App() {
         </Suspense>
       </main>
 
-      <footer className="footer-note">
-        Data: Basketball-Reference via the Kaggle &ldquo;NBA Stats (1947-present)&rdquo; dataset
-        {meta && <>, {meta.first_season}&ndash;{meta.latest_season} seasons</>} &middot; ABA seasons excluded from league
-        averages &middot; regular season unless noted &middot; <a href="/docs">API docs</a>
+      <footer className="footer-note" id="footer-sources">
+        <p><b>Data sources</b>{meta && <> &middot; {meta.first_season}&ndash;{meta.latest_season} seasons</>}</p>
+        <ul className="footer-sources">
+          <li><a href="https://www.kaggle.com/datasets/sumitrodatta/nba-aba-baa-stats">NBA Stats (1947-present)</a>: Basketball-Reference
+            season stats, advanced stats, awards, All-Star and All-NBA teams, draft and team records for every finished season.</li>
+          <li><a href="https://www.kaggle.com/datasets/gonzalogigena/nba-all-time-stats">NBA All Time Stats</a>: Basketball-Reference
+            box scores through 2023-24 (game logs, player playoff stats, rosters).</li>
+          <li><a href="https://www.kaggle.com/datasets/deocheng/nba-data-1946-2026">Deo Cheng NBA database</a>: playoff series and
+            champions, game logs and play-by-play from 2024-25, the newest award voting, salaries and contracts.</li>
+          <li><a href="https://www.kaggle.com/datasets/eoinamoore/historical-nba-data-and-player-box-scores">eoinamoore NBA box scores</a>{' '}
+            (updated daily): the newest games, play-in and NBA Cup tags, this season&rsquo;s rookies, and the season in progress.</li>
+        </ul>
+        <LiveSeasonFooter live={meta?.live_season} />
+        <p>ABA seasons excluded from league averages &middot; regular season unless noted &middot; seasons are named by the year
+          they end (2027 = 2026-27) &middot; <a href="/docs">API docs</a></p>
       </footer>
     </div>
+  );
+}
+
+/** How the season in progress is built, when its stats come from the daily box scores rather than the main dataset. */
+function LiveSeasonFooter({ live }: { live?: LiveSeason | null }) {
+  if (!live || !live.in_progress) return null;
+  const name = `${live.season - 1}-${String(live.season).slice(2)}`;
+  if (live.source !== 'box_scores' || !live.through) {
+    return <p id="footer-live-season">The {name} season is in progress; its numbers come from the main dataset and change as games are played.</p>;
+  }
+  const through = new Date(`${live.through.slice(0, 10)}T12:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return (
+    <p id="footer-live-season">
+      <b>{name} season in progress:</b> rebuilt every day from all {Math.round(live.games)} box scores through {through}, because the main
+      dataset runs behind. Per-game stats, shooting, PER, TS%, usage, team records, ratings and SRS use Basketball-Reference&rsquo;s
+      formulas; Win Shares, BPM and VORP are estimates fit on past seasons. The MVP and title predictors update daily and keep
+      their preseason picks for comparison; season records are marked &ldquo;in progress&rdquo; until the season ends.
+    </p>
   );
 }
 

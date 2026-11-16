@@ -245,21 +245,9 @@ LIVE_CHECKPOINTS = (8, 15, 25, 41, 60)
 def snapshot_features(season: int, k: int, est_model: dict, base: dict):
     """Features for one past season as it stood after the median team had played k games."""
     import prep_season_live as L
-    S = L.S
-    through = S.date_after_games(season, k)
-    teams, st, comb, allrows, lg = L.build(season, est_model, through)
-    ident = L.identities(season, set(allrows['player_id']), strict=False)
-    ps = pd.DataFrame(L.season_rows(allrows, ident, season), columns=base['player_seasons'].columns)
-    adv = pd.DataFrame(L.advanced_rows(st, comb, season), columns=base['player_advanced'].columns)
-    tg = base['team_geo'][base['team_geo']['season'] == season].copy()
-    t = teams.set_index('team')
-    tg['w'], tg['l'] = tg['abbr'].map(t['w']).astype(float), tg['abbr'].map(t['l']).astype(float)
-    env = base['league_env'].copy()
-    mins = 240.0 * lg['team_games']
-    env.loc[env['season'] == season, 'pts36'] = lg['pts'] / mins * 36
-    env.loc[env['season'] == season, 'ts_pct'] = lg['pts'] / (2 * (lg['fga'] + 0.44 * lg['fta']))
-    df = build_features({'player_seasons': ps, 'player_advanced': adv, 'team_geo': tg, 'league_env': env}, live=season)
-    return df[df['season'] == season], float((teams['g']).mean())
+    tables, gp = L.snapshot(season, k, est_model, base)
+    df = build_features(tables, live=season)
+    return df[df['season'] == season], gp
 
 
 def calibrate_live(t_full: float) -> dict:          # t_full: kept for the signature; the full-season softmax is unchanged

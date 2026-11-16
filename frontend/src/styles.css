@@ -1593,3 +1593,7 @@ select:focus, input:focus {
   background: #3a1f1a; border-bottom: 1px solid #b4483b;
   font-size: 13px; text-align: center;
 }
+
+.footer-note p { margin: 0 0 8px; line-height: 1.6; }
+.footer-sources { margin: 0 0 10px; padding-left: 18px; line-height: 1.6; }
+.footer-sources li { margin-bottom: 3px; }

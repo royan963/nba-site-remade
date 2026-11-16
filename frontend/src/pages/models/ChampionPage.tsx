@@ -5,6 +5,7 @@ import { ErrorNote, Loading, NoData, Panel, SectionHead } from '../../components
 import { DASH, fmtNum, fmtSigned } from '../../lib/format';
 import { useQueryParam } from '../../lib/useQuery';
 import { slugify } from '../teams/geo';
+import { CalibrationNote } from './CalibrationNote';
 import { LiveSeasonNote } from './LiveSeasonNote';
 import { RaceViewToggle, type RaceView } from './RaceViewToggle';
 
@@ -58,6 +59,9 @@ function Race({ model, season, view, onView, onSeason }: {
       </div>
       {both && <RaceViewToggle id="champion-view" view={view} onView={onView} />}
       {data?.kind === 'prediction' && <LiveSeasonNote season={season} id="champion-live-source" />}
+      {data?.kind === 'prediction' && model.progress?.season === season && (
+        <CalibrationNote id="champion-calibration-note" teamGames={model.progress.team_games} calibration={model.progress.calibration} what="champion" />
+      )}
       {error && <ErrorNote error={error} />}
       {!data && !error && <Loading />}
       {data && decided && champ && top && (

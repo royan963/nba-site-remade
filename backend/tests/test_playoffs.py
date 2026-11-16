@@ -100,5 +100,8 @@ def test_titles_appear_in_honors_and_comparisons(client):
 
 def test_playoff_coverage_is_reported(client):
     m = get(client, '/api/v1/meta')
-    assert m['playoffs_through'] == m['series_through'] == m['latest_season']
+    champ = get(client, '/api/v1/models/champion')
+    # the newest playoffs played: the latest season, or the one before while a season is under way
+    last = champ['latest_season'] if champ['latest_has_champion'] else champ['latest_season'] - 1
+    assert m['playoffs_through'] == m['series_through'] == last
     assert m['playoffs_partial'] == [2025]          # no box scores for the 2024-25 playoffs: series totals, some players missing

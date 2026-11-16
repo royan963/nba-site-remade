@@ -15,6 +15,12 @@ BASE = (sys.argv[1] if len(sys.argv) > 1 else 'http://localhost:8000').rstrip('/
 failures, errors = [], []
 
 
+def requests_json(url):
+    import json, urllib.request
+    with urllib.request.urlopen(url, timeout=60) as r:
+        return json.loads(r.read().decode('utf-8'))
+
+
 def check(cond, msg):
     print(('  ok   ' if cond else '  FAIL ') + msg)
     if not cond:
@@ -44,6 +50,16 @@ with sync_playwright() as p:
     open_page(page, '/')
     check(page.locator('.ticker-cell').count() == 5, 'hero ticker has 5 cells')
     check('LeBron James' in page.locator('#hero-ticker').inner_text(), 'all-time scorer comes from the API')
+    live = requests_json(f'{BASE}/api/v1/meta').get('live_season') or {}
+    if live.get('in_progress'):
+        page.wait_for_timeout(500)
+        cell = page.locator('.ticker-cell', has_text='Peak 3PT rate').inner_text()
+        check(f"{live['season']} so far" in cell and 'in progress' in cell and f"\u00b7 {live['season']}\n" not in cell,
+              'season records skip the season in progress but show it, labelled in progress')
+    foot = page.locator('#footer-sources')
+    check(foot.locator('a[href*="kaggle.com/datasets"]').count() == 4, 'footer credits all four datasets')
+    if live.get('source') == 'box_scores' and live.get('in_progress'):
+        check('box scores' in page.locator('#footer-live-season').inner_text(), 'footer explains how the season in progress is built')
     print('Recent games')
     page.wait_for_selector('#recent-games .rg-card', timeout=15000)
     dates = page.locator('#recent-games .rg-day').evaluate_all('els => els.map(e => e.dataset.date)')
@@ -169,6 +185,8 @@ with sync_playwright() as p:
     preseason = '(preseason)' in page.locator('#champion-race .section-title').inner_text().lower()
     check((not preseason or page.locator('#champion-preseason-note').count() == 1)
           and page.locator('#champion-tbody tr').count() >= 28, 'champion predictor opens on the newest season, every team listed')
+    if page.locator('#champion-calibration-note').count():
+        check('leader went on to win' in page.locator('#champion-calibration-note').inner_text(), 'live title odds say how often early leaders won')
     if page.locator('#champion-view').count():
         page.locator('#champion-view button', has_text='Preseason').click()
         page.wait_for_selector('#champion-preseason-note', timeout=15000)

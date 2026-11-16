@@ -28,12 +28,19 @@ def test_search_ignores_accents(client):
     assert 'name_search' not in hits[0]
 
 
+MULTI_TEAMS = {'2TM', '3TM', '4TM', '5TM'}
+
+
 def test_player_with_two_spellings_has_one_full_career(client):
     hits = get(client, '/api/v1/players?q=krejci')
     assert len(hits) == 1
-    # Both spellings are one career: 187 + 36 + 135 + 412 + 550 (2026 is his traded season, counted once as the combined 2TM row).
-    # The old expected value, 1870, was wrong: it added the ATL and POR stints (414 + 136) on top of that combined row.
-    assert hits[0]['pts'] == 1320
+    # Both spellings are one career: 187 + 36 + 135 + 412 + 550 = 1320 through 2025-26 (2026 is his traded season, counted
+    # once as the combined 2TM row). The old expected value, 1870, was wrong: it added the ATL and POR stints (414 + 136) on top
+    # of that combined row. He is still playing, so seasons from 2026-27 on add to it: their points-per-game times games,
+    # allowing for per-game rounding.
+    later = [s for s in get(client, f"/api/v1/players/{hits[0]['player_id']}/seasons") if s['season'] >= 2027 and s['team'] not in MULTI_TEAMS]
+    added = sum(s['pts'] * s['g'] for s in later)
+    assert abs(hits[0]['pts'] - (1320 + added)) <= 0.05 * sum(s['g'] for s in later) + 1
 
 
 def test_player_index_is_compact(client):
@@ -319,6 +326,23 @@ def test_champion_live_and_preseason_differ(client):
     assert all(t['kind'] == 'prediction' for t in live['teams']) and all(t['kind'] == 'preseason' for t in pre['teams'])
 
 
+def test_champion_live_odds_are_calibrated_mid_season(client):
+    m = get(client, '/api/v1/models/champion')
+    prog = m.get('progress')
+    if m['latest_has_champion'] or not prog:
+        pytest.skip('no season in progress, or data from before the calibration')
+    cal = prog['calibration']
+    assert prog['season'] == m['latest_season'] and len(cal['seasons']) >= 8
+    assert [x['games'] for x in cal['by_games']] == sorted(x['games'] for x in cal['by_games'])
+    # the power grows through the season: earlier means less sure
+    powers = [x['power'] for x in cal['by_games']] if 'power' in cal['by_games'][0] else None
+    if powers:
+        assert powers == sorted(powers)
+    live = get(client, f"/api/v1/models/champion/{m['latest_season']}")
+    probs = [t['win_prob'] for t in live['teams']]
+    assert abs(sum(probs) - 1) < 0.01 and probs[0] == max(probs) and probs[0] < 0.6
+
+
 def test_mvp_unknown_season(client):
     get(client, '/api/v1/models/mvp/1900', status=404)
 
@@ -450,6 +474,12 @@ def test_team_salaries(client):
 
 
 # ---- playoffs after the box scores end -----------------------------------------------------
+def last_playoffs(client):
+    """The newest season whose playoffs have been played: the latest season, or the one before while a season is under way."""
+    m = get(client, '/api/v1/models/champion')
+    return m['latest_season'] if m['latest_has_champion'] else m['latest_season'] - 1
+
+
 def test_player_playoffs_newest_seasons(client):
     r = get(client, '/api/v1/players/gilgesh01/playoffs')
     by = {s['season']: s for s in r['seasons']}
@@ -459,7 +489,7 @@ def test_player_playoffs_newest_seasons(client):
     towns = next(s for s in get(client, '/api/v1/players/townska01/playoffs')['seasons'] if s['season'] == 2026)
     assert towns['source'] == 'game_log' and towns['g'] == 19 and towns['mpg'] is None      # not in the series table; logs have no minutes
     meta = get(client, '/api/v1/meta')
-    assert meta['playoffs_partial'] == [2025] and meta['playoffs_through'] == meta['latest_season']
+    assert meta['playoffs_partial'] == [2025] and meta['playoffs_through'] == last_playoffs(client)
 
 
 def test_newest_playoff_team_totals(client):
