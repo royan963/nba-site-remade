@@ -1,6 +1,7 @@
 {
  "season": 2027,
  "source": "box_scores",
+ "in_progress": true,
  "through": "2026-11-15",
  "games": 194.0,
  "official_games": 88.0,
