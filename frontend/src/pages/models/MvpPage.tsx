@@ -4,6 +4,7 @@ import type { MvpModel, MvpSeason } from '../../api/types';
 import { ErrorNote, HofBadge, Loading, NoData, Panel, SectionHead } from '../../components/ui';
 import { DASH, fmtNum, fmtSigned } from '../../lib/format';
 import { useQueryParam } from '../../lib/useQuery';
+import { LiveSeasonNote } from './LiveSeasonNote';
 import { RaceViewToggle, type RaceView } from './RaceViewToggle';
 
 const pct = (v: number | null | undefined, d = 0) => (v == null ? DASH : `${(v * 100).toFixed(d)}%`);
@@ -111,6 +112,8 @@ function Race({ model, season, view, onView, onSeason }: {
           GP is games played so far. Players need {model.games_rule.min} games to win, so anyone who can no longer reach {model.games_rule.hard_min} is left out, and so is anyone who has missed more than half his team&rsquo;s games or plays under 20 minutes a night.
         </p>
       )}
+      {data && live && <LiveSeasonNote season={season} id="mvp-live-source" />}
+      {data && live && <CalibrationNote progress={live} />}
       {data && !pre && !live && model.games_rule_season <= season && (
         <p className="section-sub" style={{ marginTop: 12, marginBottom: 0 }}>
           From {model.games_rule_season} on, MVP candidates need {model.games_rule.min} games. Players under {model.games_rule.hard_min} are left out; the exceptions that count some shorter games aren&rsquo;t in this data.
@@ -167,5 +170,18 @@ function ModelCard({ model, onSeason }: { model: MvpModel; onSeason: (s: number)
         <p>It&rsquo;s a model of how voters behave, not of who was truly most valuable, and it can&rsquo;t see narratives, injuries or the eye test, which is exactly where its misses tend to happen.</p>
       </details>
     </>
+  );
+}
+
+/** How sure to be this early: how often the leader at this point of past seasons went on to win. */
+function CalibrationNote({ progress }: { progress: NonNullable<MvpModel['progress']> }) {
+  const cal = progress.calibration;
+  if (!cal || !cal.by_games.length) return null;
+  const near = cal.by_games.reduce((a, b) => (Math.abs(b.games - progress.team_games) < Math.abs(a.games - progress.team_games) ? b : a));
+  return (
+    <p className="section-sub" id="mvp-calibration-note" style={{ marginTop: 8, marginBottom: 0 }}>
+      Chances are calibrated on past seasons rebuilt game by game ({cal.seasons[0]}&ndash;{cal.seasons[cal.seasons.length - 1]}): {near.games} games in, the leader went on to win
+      {' '}{Math.round(near.leader_won * 100)}% of the time and the eventual MVP was in the top 3 {Math.round(near.winner_in_top3 * 100)}% of the time.
+    </p>
   );
 }

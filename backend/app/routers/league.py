@@ -29,6 +29,7 @@ def meta(response: Response, conn=Depends(get_conn)):
         'playoffs_through': int(m.get('playoffs_through') or 0),
         'playoffs_partial': json.loads(m.get('playoffs_partial') or '[]'),
         'series_through': int(m.get('series_through') or 0),
+        'live_season': json.loads(m['live_season']) if m.get('live_season') else None,
     }
 
 

@@ -5,6 +5,7 @@ import { ErrorNote, Loading, NoData, Panel, SectionHead } from '../../components
 import { DASH, fmtNum, fmtSigned } from '../../lib/format';
 import { useQueryParam } from '../../lib/useQuery';
 import { slugify } from '../teams/geo';
+import { LiveSeasonNote } from './LiveSeasonNote';
 import { RaceViewToggle, type RaceView } from './RaceViewToggle';
 
 const pct = (v: number | null | undefined, d = 0) => (v == null ? DASH : `${(v * 100).toFixed(d)}%`);
@@ -56,6 +57,7 @@ function Race({ model, season, view, onView, onSeason }: {
         </select>
       </div>
       {both && <RaceViewToggle id="champion-view" view={view} onView={onView} />}
+      {data?.kind === 'prediction' && <LiveSeasonNote season={season} id="champion-live-source" />}
       {error && <ErrorNote error={error} />}
       {!data && !error && <Loading />}
       {data && decided && champ && top && (

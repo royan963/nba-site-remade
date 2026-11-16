@@ -39,3 +39,11 @@ def test_the_update_downloads_the_three_files_the_step_needs():
 
 def test_the_raw_download_folder_is_not_committed():
     assert 'data/raw_eoin/' in (ROOT / '.gitignore').read_text(encoding='utf8')
+
+
+def test_the_season_in_progress_is_rebuilt_from_box_scores_before_any_model_trains():
+    i = at("'scripts/prep_season_live.py'")
+    assert i > at("'scripts/prep_games_eoin.py'")
+    for model in ('train_archetypes.py', 'train_similarity.py', 'train_projections.py', 'train_mvp.py', 'train_champion.py'):
+        assert i < at(f"'scripts/{model}'"), model
+    assert 'restore(' in SRC[i:i + 200]

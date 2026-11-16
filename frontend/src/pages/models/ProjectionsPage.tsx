@@ -3,6 +3,7 @@ import { useApi } from '../../api/hooks';
 import type { ProjectionCheckRow, ProjectionModel, ProjectionRow } from '../../api/types';
 import { ErrorNote, HofBadge, Loading, Panel, SectionHead } from '../../components/ui';
 import { fmtNum } from '../../lib/format';
+import { LiveSeasonNote } from './LiveSeasonNote';
 
 export function ProjectionsPage() {
   const { data, error } = useApi<ProjectionModel>('/models/projections');
@@ -45,6 +46,7 @@ export function ProjectionsPage() {
               <div className="ps-cell"><div className="v">{data.tracked.in_range == null ? '\u2014' : `${Math.round(data.tracked.in_range * 100)}%`}</div>
                 <div className="l">inside their projected range &middot; about 60% expected by season&rsquo;s end</div></div>
             </div>
+            <LiveSeasonNote season={data.in_progress.season} id="proj-live-source" />
           </Panel>
           <div className="panel-row">
             <CheckList id="proj-ahead" title="Most ahead of projection" rows={data.ahead ?? []} />
