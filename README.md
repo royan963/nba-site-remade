@@ -153,11 +153,11 @@ Accounts are built into the API, so there's no outside auth service. Passwords a
 
 ### Deploying
 
-**Render (free, one click):** the repo includes a `render.yaml` Blueprint. In the [Render dashboard](https://dashboard.render.com), choose **New → Blueprint**, pick this repo, and click **Apply**. Render builds the `Dockerfile` (React build, then the API with a built-in SQLite database) and serves everything at `https://<service-name>.onrender.com`. Every push to `main` redeploys, so the weekly data-update workflow keeps the live site current with no database to manage. Free instances sleep after 15 idle minutes and take about a minute to wake on the next visit.
+**Render (free, one click):** the repo includes a `render.yaml` Blueprint. In the [Render dashboard](https://dashboard.render.com), choose **New → Blueprint**, pick this repo, and click **Apply**. Render builds the `Dockerfile` (React build, then the API with a built-in SQLite database) and serves everything at `https://<service-name>.onrender.com`. Every push to `main` redeploys, so the daily data-update workflow keeps the live site current with no database to manage. Free instances sleep after 15 idle minutes and take about a minute to wake on the next visit.
 
 **Size and startup time:** with game-by-game data the database is about 260 MB on PostgreSQL (fits a 0.5 GB free tier; player-games are stored compactly for this) and about 240 MB as SQLite. A full load takes about 40 seconds on PostgreSQL (bulk `COPY`) and about 75 seconds on SQLite. The Docker image builds its SQLite database at build time, so it starts immediately; a PostgreSQL deployment loads once on first start and after each deploy with new data, so allow the host's startup or health-check timeout at least two minutes.
 
-**With PostgreSQL (needed for accounts):** create a database (for example on Neon or Supabase; Render's own free PostgreSQL is deleted after 30 days), and add `DATABASE_URL` to the Render service's environment variables. On its first start the server loads the stats and creates the account tables; after that, every deploy with new data (including the weekly update) reloads the stats tables automatically and leaves accounts alone.
+**With PostgreSQL (needed for accounts):** create a database (for example on Neon or Supabase; Render's own free PostgreSQL is deleted after 30 days), and add `DATABASE_URL` to the Render service's environment variables. On its first start the server loads the stats and creates the account tables; after that, every deploy with new data (including the daily update) reloads the stats tables automatically and leaves accounts alone.
 
 The same `Dockerfile` runs on any Docker host (Railway, Fly.io, a VPS); the container listens on `$PORT` (default 8000).
 
@@ -227,7 +227,7 @@ scripts/
   build_map_data.js        US/Canada topology -> data/states-10m.json, canada_topo.json
 tests/e2e_test.py          Browser test of the React app: every page, deep links, URL state
 tests/smoke_test.py        Browser test of the static build
-.github/workflows/         Weekly data update; API, frontend and browser tests on every push
+.github/workflows/         Daily data update; API, frontend and browser tests on every push
 ```
 
 ## Updating to the latest season
@@ -244,7 +244,7 @@ It then refreshes playoffs, rings, Finals MVP and game-by-game data from the [De
 
 - No Kaggle account? Download the zip from the dataset page and run `python3 scripts/update_season.py --zip path/to/archive.zip`. For the Deo Cheng data use `--deocheng-zip path/to/Deo_Cheng_NBA.zip`, or `--deocheng-slices SLICE PBP_SLICE` with folders cut by the two `scripts/extract_deocheng_*.py` scripts. `--no-games` skips that part.
 - **New or renamed team** (e.g. an expansion team): the script stops and names it. Add it to `TEAM_META` (and `CITY_COORDS` for a new city) in `scripts/franchise_map.py`, and to `TEAM_COLORS` in `scripts/team_colors.py` if it's a new franchise, then rerun.
-- **Automatic updates:** `.github/workflows/update-data.yml` runs the same script every Monday and commits any new data, including `data/games/`. Add a repository secret named `KAGGLE_API_TOKEN` to turn it on; you can also run it from the Actions tab, where a checkbox lets you skip the large game-data download.
+- **Automatic updates:** `.github/workflows/update-data.yml` runs the same script every day at 12:00 UTC and commits any new data, including `data/games/`. Add a repository secret named `KAGGLE_API_TOKEN` to turn it on; you can also run it from the Actions tab, where a checkbox lets you skip the large game-data download.
 
 ## Rebuilding
 
@@ -278,7 +278,7 @@ python3 tests/smoke_test.py                                         # static bui
 - Validation: the same assembly run on 2023-24, where the box scores are the truth, completed 1,228 of 1,230 games, matched every stat in 99.9-100% of player-games (minutes 98.7%), and got every visitor and score right. For the newest seasons: 2024-25 regular season 1,227 of 1,230 games complete, 2025-26 regular season 1,164 of 1,230, 2025-26 playoffs 85 of 85. The 2024-25 playoffs have no box scores or play-by-play in either dataset.
 - Player ids: the source's own Basketball-Reference ids are sometimes a namesake ('D. Mitchell' credited to a Mitchell from decades ago, 'AJ Green' to A.C. Green), and the points still add up, so the score check can't catch it. Every row is checked against the team's roster that season (from this project's Basketball-Reference season data): the NBA's own player id from the game log decides first, then the name on that team's roster; a row that still can't be placed is dropped, and its game shows no player stats rather than wrong ones.
 - Gap filler, `scripts/prep_games_eoin.py`: the [eoinamoore dataset](https://www.kaggle.com/datasets/eoinamoore/historical-nba-data-and-player-box-scores) (updated daily) adds games the files above lack: the 2024-25 playoffs and play-in, the last 2025-26 games, and the 2026-27 season so far. It never changes an existing row and skips preseason and All-Star games. Added rows are marked `src = eoin`. Every game from 2019-20 on also carries a `kind` (regular, playoffs, play_in or cup_final): like the NBA, the site counts play-in games and the NBA Cup championship game in no regular-season log, high, milestone, record or head-to-head. A game's player rows are saved only if the points add up; a game with a player missing from our player table (a rookie) is saved as incomplete and redone on the next run. Check the dataset's license before publishing anything built on it.
-- The weekly update stops (and restores the previous files) if a season falls below 90% complete games, so a worse source can't silently replace better data.
+- The daily update stops (and restores the previous files) if a season falls below 90% complete games, so a worse source can't silently replace better data.
 
 Playoffs, rings and game-level data come from two further sources, used for what each can be trusted with (checked on the 2023-24 season they share):
 

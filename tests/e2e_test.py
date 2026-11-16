@@ -150,13 +150,29 @@ with sync_playwright() as p:
     check(path_of(page) == '/models/mvp', '/models opens the MVP predictor')
     check(page.locator('#mvp-tbody tr').count() >= 10, 'MVP race table lists candidates')
     check('%' in page.locator('#mvp-accuracy').inner_text(), 'model accuracy card')
-    page.wait_for_selector('#mvp-preseason-note', timeout=15000)
-    check('(preseason)' in page.locator('#mvp-race .section-title').inner_text().lower() and page.locator('#mvp-preseason-note').count() == 1,
-          'opens on the upcoming preseason race')
+    page.wait_for_selector('#mvp-preseason-note, #mvp-live-note', timeout=15000)
+    title = page.locator('#mvp-race .section-title').inner_text().lower()
+    check(('(preseason)' in title and page.locator('#mvp-preseason-note').count() == 1)
+          or ('(preseason)' not in title and page.locator('#mvp-live-note').count() == 1),
+          'opens on the newest race (preseason, or the season in progress)')
+    if page.locator('#mvp-view').count():
+        page.locator('#mvp-view button', has_text='Preseason').click()
+        page.wait_for_selector('#mvp-preseason-note', timeout=15000)
+        check('view=preseason' in page.url and '(preseason)' in page.locator('#mvp-race .section-title').inner_text().lower(),
+              'season in progress: the preseason race is one click away')
+        page.locator('#mvp-view button', has_text='Live').click()
+        page.wait_for_selector('#mvp-live-note', timeout=15000)
+        check('view=' not in page.url, 'and back to the live race')
     open_page(page, '/models/champion')
-    page.wait_for_selector('#champion-preseason-note', timeout=15000)
-    check('(preseason)' in page.locator('#champion-race .section-title').inner_text().lower()
-          and page.locator('#champion-tbody tr').count() >= 28, 'champion predictor opens on the preseason odds, every team listed')
+    page.wait_for_selector('#champion-tbody tr', timeout=15000)
+    page.wait_for_timeout(500)
+    preseason = '(preseason)' in page.locator('#champion-race .section-title').inner_text().lower()
+    check((not preseason or page.locator('#champion-preseason-note').count() == 1)
+          and page.locator('#champion-tbody tr').count() >= 28, 'champion predictor opens on the newest season, every team listed')
+    if page.locator('#champion-view').count():
+        page.locator('#champion-view button', has_text='Preseason').click()
+        page.wait_for_selector('#champion-preseason-note', timeout=15000)
+        check(page.locator('#champion-tbody tr').count() >= 28, 'season in progress: the preseason odds are one click away')
     page.select_option('#champion-season', '1996'); page.wait_for_timeout(700)
     check('season=1996' in page.url and 'Chicago Bulls' in page.locator('#champion-verdict').inner_text(), 'champion backtest season via picker + URL')
     page.locator('.champion-miss').first.click(); page.wait_for_timeout(700)
@@ -219,8 +235,15 @@ with sync_playwright() as p:
     open_page(page, '/models/projections')
     check(page.locator('#projection-accuracy tbody tr').count() == 3, 'projection accuracy table (3 horizons)')
     check(page.locator('#proj-risers tbody tr').count() >= 5, 'projected risers list')
+    live = page.locator('#proj-so-far').count() == 1
+    if live:
+        check(page.locator('#proj-ahead tbody tr').count() >= 5 and page.locator('#proj-behind tbody tr').count() >= 5,
+              'season in progress: players ahead of and behind their projection')
     open_page(page, '/players/wembavi01?tab=projection')
-    check(page.locator('#pc-projection-table tbody tr').count() == 3, 'player page shows a 3-season projection')
+    check(page.locator('#pc-projection-table tbody tr:not(.proj-so-far)').count() == 3, 'player page shows a 3-season projection')
+    if live:
+        check(page.locator('#pc-projection-so-far').count() == 1 and 'games' in page.locator('#pc-projection-so-far').inner_text(),
+              'player projection shows this season so far next to the projection')
     open_tab(page, 'stats')
     labels = page.evaluate("document.querySelector('[data-testid=player-chart]').chart.data.labels")
     check(labels[-1] == labels[-4] + 3, 'career chart extends three seasons into the projection')

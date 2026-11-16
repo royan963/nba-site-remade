@@ -187,6 +187,7 @@ export interface MvpModel {
   misses: { season: number; predicted: string; actual: string; predicted_name: string | null; actual_name: string | null }[];
   latest_season: number; latest_has_votes: boolean; games_rule_season: number; games_rule: { min: number; hard_min: number };
   preseason: { season: number; base_season: number; metrics: { seasons: number; top1: number; top3: number; baseline_top1: number; favorite_prob: number; features: string[] } } | null;
+  progress?: { in_progress: boolean; season: number; team_games: number; season_games: number } | null;
   seasons: number[];
 }
 export interface MvpCandidate {
@@ -257,8 +258,13 @@ export interface ProjectionHorizon {
   ast: number | null; ast_lo: number | null; ast_hi: number | null; mp: number | null; mp_lo: number | null; mp_hi: number | null;
   ts_pct: number | null;
 }
+export interface SeasonInProgress { season: number; team_games: number; season_games: number }
+export interface ProjectionCheck { diff: number; in_range: boolean | null }
 export interface PlayerProjection {
   player_id: string; projected: boolean; base_season: number; horizons: ProjectionHorizon[];
+  in_progress?: SeasonInProgress | null;
+  so_far?: { season: number; team: string | null; g: number; mp: number | null; pts: number | null; trb: number | null; ast: number | null;
+    ts_pct: number | null; vs: Partial<Record<'pts' | 'trb' | 'ast' | 'mp', ProjectionCheck>> | null } | null;
   comps: { rank: number; comp_id: string; comp_season: number; similarity: number; player: string; hof: boolean }[];
 }
 export interface ProjectionModel {
@@ -269,6 +275,13 @@ export interface ProjectionModel {
     trb: { model: number; last_season: number; aging_curve: number; band_coverage: number };
     ast: { model: number; last_season: number; aging_curve: number; band_coverage: number } }[] };
   top_scorers: ProjectionRow[]; risers: ProjectionRow[]; decliners: ProjectionRow[];
+  in_progress?: SeasonInProgress | null;
+  ahead?: ProjectionCheckRow[]; behind?: ProjectionCheckRow[];
+  tracked?: { players: number; in_range: number | null; min_games: number } | null;
+}
+export interface ProjectionCheckRow {
+  player_id: string; player: string; hof: boolean; team: string | null; g: number; pts: number; proj_pts: number;
+  pts_lo: number | null; pts_hi: number | null; diff: number; in_range: boolean;
 }
 export interface ProjectionRow {
   player_id: string; player: string; hof: boolean; age: number /* age next season */; team: string; now_pts: number; pts: number;

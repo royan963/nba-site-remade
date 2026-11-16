@@ -31,6 +31,7 @@ POOL_FROM = 1975                    # steals/blocks/usage era; minutes reliable
 HORIZONS = (1, 2, 3)
 K_NEIGHBORS = 60
 MIN_G, MIN_MP = 20, 10.0            # a "current" season worth projecting from
+SEASON_GAMES = 82
 PLAYED_G, PLAYED_MP = 10, 5.0       # counts as having played a later season
 CUR = ['mp', 'pts_i', 'trb_i', 'ast_i', 'ts_r']
 PREV_WEIGHT = 0.5
@@ -127,6 +128,12 @@ def main():
     pool_all = df[(df['season'] >= POOL_FROM) & (df['g'] >= MIN_G) & (df['mp'] >= MIN_MP)]
     sd = pool_all[CUR].std()
     latest = int(df['season'].max())
+    # While a season is under way, project from the last finished one: its projection for this season
+    # is then compared with what each player is doing so far (by the API, from the daily stats).
+    tg = frame('team_geo')
+    team_games = float((tg.loc[tg['season'] == latest, 'w'] + tg.loc[tg['season'] == latest, 'l']).mean())
+    in_progress = team_games < SEASON_GAMES - 0.5
+    from_season = latest - 1 if in_progress else latest
     by_age = {a: g for a, g in pool_all.groupby('age')}
 
     def pool_for(age, max_season):
@@ -188,19 +195,21 @@ def main():
               f"60% band covers {m['pts']['band_coverage']:.0%}; still-playing Brier {m['active_brier']} vs {m['active_brier_base']}  (n={m['n']})")
 
     # ---- current players --------------------------------------------------------------
-    cur = df[(df['season'] == latest) & (df['g'] >= MIN_G) & (df['mp'] >= MIN_MP)]
+    cur = df[(df['season'] == from_season) & (df['g'] >= MIN_G) & (df['mp'] >= MIN_MP)]
     projections = []
     for r in cur.itertuples(index=False):
         t = pd.Series(r._asdict())
         # only comparables whose next three seasons are known (same rule as the backtest)
-        res = project(t, pool_for(int(t['age']), latest - max(HORIZONS)), env.loc[latest], sd)
+        res = project(t, pool_for(int(t['age']), from_season - max(HORIZONS)), env.loc[from_season], sd)
         if not res:
             continue
-        projections.append({'player_id': t['player_id'], 'season': latest, 'age': int(t['age']),
+        projections.append({'player_id': t['player_id'], 'season': from_season, 'age': int(t['age']),
                             'current': {k: (None if pd.isna(t[k]) else round(float(t[k]), 3 if k == 'ts_pct' else 1)) for k in OUT_STATS},
-                            'horizons': [{**hz, 'season': latest + hz['h'], 'age': int(t['age']) + hz['h']} for hz in res['horizons']],
+                            'horizons': [{**hz, 'season': from_season + hz['h'], 'age': int(t['age']) + hz['h']} for hz in res['horizons']],
                             'comps': res['comps']})
-    out = {'latest_season': latest, 'method': {'k': K_NEIGHBORS, 'pool_from': POOL_FROM, 'min_games': MIN_G, 'min_mp': MIN_MP,
+    out = {'latest_season': from_season,        # the season projected from
+           'in_progress': {'season': latest, 'team_games': round(team_games, 1), 'season_games': SEASON_GAMES} if in_progress else None,
+           'method': {'k': K_NEIGHBORS, 'pool_from': POOL_FROM, 'min_games': MIN_G, 'min_mp': MIN_MP,
                                                 'band': [0.2, 0.8]},
            'metrics': metrics, 'players': projections}
     (DATA / 'projections.json').write_text(json.dumps(out, allow_nan=False))

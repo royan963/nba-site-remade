@@ -178,6 +178,9 @@ mvp_candidates = Table(
     'mvp_candidates', metadata,
     Column('season', Integer, primary_key=True),
     Column('player_id', String(16), ForeignKey('players.player_id'), primary_key=True),
+    # 'backtest', 'prediction' (the season in progress) or 'preseason' (before its first game);
+    # a season under way has both a prediction and a preseason race
+    Column('kind', String(10), primary_key=True, server_default='backtest'),
     Column('rank', Integer, nullable=False),               # model's rank that season
     Column('predicted_share', Float, nullable=False),
     Column('win_prob', Float, nullable=False),
@@ -200,11 +203,11 @@ champion_candidates = Table(
     'champion_candidates', metadata,
     Column('season', Integer, primary_key=True),
     Column('franchise', String(40), primary_key=True),
+    Column('kind', String(10), primary_key=True),          # a season under way has both 'prediction' and 'preseason' rows
     Column('team', String(4), nullable=False),             # abbreviation in the season the stats come from
     Column('team_name', String(40)),
     Column('rank', Integer, nullable=False),
     Column('win_prob', Float, nullable=False),
-    Column('kind', String(10), nullable=False),
     Column('champion', Boolean),                           # NULL until the season is decided
     Column('result', String(40)),
     Column('w', Integer),

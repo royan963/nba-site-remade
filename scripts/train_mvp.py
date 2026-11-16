@@ -32,7 +32,9 @@ GAMES_RULE_SEASON = 2024          # 65-game minimum for MVP eligibility, from 20
 # injuries lower the bar to 62), which this data can't see. So only players under
 # 62 games are excluded; 62-64 are kept and flagged.
 HARD_MIN_GAMES, RULE_GAMES = 62, 65
+SEASON_GAMES = 82
 SEED = 7
+PROGRESS = {}                     # how far the latest season has got; filled by build_features()
 
 
 def frame(name):
@@ -57,6 +59,27 @@ def build_features() -> pd.DataFrame:
     teams['team_rank'] = teams.groupby('season')['win_pct'].rank(ascending=False, method='min')
     df = df.merge(teams[['season', 'team', 'win_pct', 'team_rank']], on=['season', 'team'], how='left')
 
+    # A season still in progress (no MVP vote yet, teams short of a full schedule): put games and the
+    # cumulative stats (Win Shares, VORP) on a full-season pace, so the race can be read mid-season by a
+    # model that learned from full seasons. Rates and per-game stats need no change.
+    teams['team_gp'] = teams['w'] + teams['l']
+    df = df.merge(teams[['season', 'team', 'team_gp']], on=['season', 'team'], how='left')
+    df['g'] = df['g'].astype(float)
+    df['g_actual'] = df['g']
+    df['pace'] = 1.0
+    voted = set(frame('player_award_shares').query("award == 'nba mvp'")['season'])
+    latest = int(df['season'].max())
+    league_gp = float(teams.loc[teams['season'] == latest, 'team_gp'].mean())
+    in_progress = latest not in voted and league_gp < SEASON_GAMES - 0.5
+    if in_progress:
+        cur = df['season'] == latest
+        gp = df.loc[cur, 'team_gp'].fillna(league_gp).clip(lower=1)
+        df.loc[cur, 'pace'] = SEASON_GAMES / gp
+        df.loc[cur, 'g'] = (df.loc[cur, 'g'] * df.loc[cur, 'pace']).clip(upper=SEASON_GAMES)
+        for col in ('ws', 'vorp'):
+            df.loc[cur, col] = df.loc[cur, col] * df.loc[cur, 'pace']
+    PROGRESS.update(in_progress=bool(in_progress), season=latest, team_games=round(league_gp, 1), season_games=SEASON_GAMES)
+
     env = frame('league_env').set_index('season')
     df['pts_idx'] = df['pts'] / df['mp'] * 36 / df['season'].map(env['pts36'])
     df['ts_rel'] = df['ts_pct'] / df['season'].map(env['ts_pct'])
@@ -78,10 +101,15 @@ def build_features() -> pd.DataFrame:
     df['prior_mvps'] = [sum(s < season for s in wins.get(pid, [])) for pid, season in zip(df['player_id'], df['season'])]
     df['won_last_year'] = [int(season - 1 in wins.get(pid, [])) for pid, season in zip(df['player_id'], df['season'])]
 
-    df = df[(df['season'] >= FIRST_MVP_SEASON) & (df['g'].fillna(0) >= 20)].copy()
+    df = df[(df['season'] >= FIRST_MVP_SEASON) & (df['g'].fillna(0) >= 20)].copy()   # g is on pace mid-season
+    # mid-season, also drop players who have missed most of their team's games (a two-game sample is noise)
+    # and bench players, whose per-minute numbers over a handful of games can look like an MVP's
+    df = df[(df['pace'] == 1) | ((df['g_actual'] >= df['team_gp'].fillna(0) / 2) & (df['mp'] >= 20))].copy()
     rule = df['season'] >= GAMES_RULE_SEASON
-    df['eligible'] = ~(rule & (df['g'] < HARD_MIN_GAMES))
-    df['needs_exception'] = rule & (df['g'] >= HARD_MIN_GAMES) & (df['g'] < RULE_GAMES)
+    # mid-season, the most games a player can still reach: what he has plus his team's games left
+    reachable = np.where(df['pace'] > 1, df['g_actual'] + (SEASON_GAMES - df['team_gp'].fillna(0)), df['g'])
+    df['eligible'] = ~(rule & (reachable < HARD_MIN_GAMES))
+    df['needs_exception'] = rule & (reachable >= HARD_MIN_GAMES) & (reachable < RULE_GAMES)
     return df.reset_index(drop=True)
 
 
@@ -267,7 +295,8 @@ def main():
                 'actual_share': round(float(r['share']), 4) if r['season'] <= metrics['trained_through'] else None,
                 'winner': bool(r['winner']), 'eligible': bool(r['eligible']),
                 'needs_exception': bool(r['needs_exception']), 'team': r['team'],
-                'g': int(r['g']), 'win_pct': None if pd.isna(r['win_pct']) else round(float(r['win_pct']), 3),
+                'g': int(r['g_actual']), 'win_pct': None if pd.isna(r['win_pct']) else round(float(r['win_pct']), 3),
+                'kind': 'backtest' if r['season'] <= metrics['trained_through'] else 'prediction',
             })
         # actual vote rank among those who got votes
         return out
@@ -291,26 +320,30 @@ def main():
             c['actual_rank'] = None
             candidates.append(c)
 
-    # ---- preseason race for the next season, once the latest vote is in -------------------------
+    # ---- preseason race: the season after the last vote, before any games. Kept all season, next
+    # to the live race, so the two can be compared ----------------------------------------------
     pre = None
-    if has_votes:
-        pre_metrics, base = preseason(df, latest)
+    last_voted = metrics['trained_through']
+    if last_voted + 1 >= latest:
+        pre_metrics, base = preseason(df, last_voted)
         for rank, (_, r) in enumerate(base.sort_values('pred', ascending=False).head(15).iterrows(), start=1):
             candidates.append({
-                'season': latest + 1, 'player_id': r['player_id'], 'rank': rank,
+                'season': last_voted + 1, 'player_id': r['player_id'], 'rank': rank,
                 'predicted_share': round(float(r['pred']), 4), 'win_prob': round(float(r['win_prob']), 4),
                 'actual_share': None, 'winner': False, 'eligible': True, 'needs_exception': False, 'team': r['team'],
-                'g': int(r['g']), 'win_pct': None if pd.isna(r['win_pct']) else round(float(r['win_pct']), 3), 'actual_rank': None,
+                'g': int(r['g']), 'win_pct': None if pd.isna(r['win_pct']) else round(float(r['win_pct']), 3),
+                'kind': 'preseason', 'actual_rank': None,
             })
-        pre = {'season': latest + 1, 'base_season': latest, 'metrics': pre_metrics}
+        pre = {'season': last_voted + 1, 'base_season': last_voted, 'metrics': pre_metrics}
         print(f"preseason backtest: picks the MVP in {pre_metrics['top1']:.0%} of seasons (top 3: {pre_metrics['top3']:.0%}); "
               f"last season's top vote-getter: {pre_metrics['baseline_top1']:.0%}")
-        print(f'{latest + 1} preseason:', ', '.join([f"{c['player_id']} {c['win_prob']:.0%}" for c in candidates if c['season'] == latest + 1][:5]))
+        print(f'{last_voted + 1} preseason:', ', '.join([f"{c['player_id']} {c['win_prob']:.0%}" for c in candidates if c['kind'] == 'preseason'][:5]))
 
     out = {
         'latest_season': latest, 'latest_has_votes': has_votes, 'games_rule_season': GAMES_RULE_SEASON,
         'games_rule': {'min': RULE_GAMES, 'hard_min': HARD_MIN_GAMES},
         'metrics': metrics, 'importances': importances, 'misses': misses, 'preseason': pre,
+        'progress': PROGRESS if not has_votes else None,
         'columns': list(candidates[0].keys()), 'rows': [list(c.values()) for c in candidates],
     }
     (DATA / 'mvp_model.json').write_text(json.dumps(out, allow_nan=False))
@@ -318,7 +351,7 @@ def main():
     print('top features:', ', '.join(f"{d['label']} ({d['importance']:.3f})" for d in importances[:6]))
     if not has_votes:
         print(f'{latest} race:', ', '.join(f"{c['player_id']} {c['win_prob']:.0%}" for c in out['rows'] and
-                                           [dict(zip(out['columns'], r)) for r in out['rows'] if r[0] == latest][:5]))
+                                           [c for c in candidates if c['kind'] == 'prediction'][:5]))
 
 
 if __name__ == '__main__':
