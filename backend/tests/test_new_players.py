@@ -105,7 +105,11 @@ def test_provisional_players_are_in_the_data_with_ids_that_do_not_collide_with_o
     s = stubs_file()
     official = {r[0] for r in json.loads((ROOT / 'data' / 'player_career.json').read_text(encoding='utf8'))['rows']}
     ids = [p['player_id'] for p in s['players']]
-    assert len(ids) >= 20 and len(set(ids)) == len(ids) and not (set(ids) & official)
+    # The list shrinks as the main dataset gives rookies official ids (20+ at the season's start, 7 by mid-November);
+    # what must hold is that the ids left are unique and never an official player's.
+    if not ids:
+        pytest.skip('every rookie has an official id by now')
+    assert len(set(ids)) == len(ids) and not (set(ids) & official)
     assert {x['player_id'] for x in s['seasons']} == set(ids)
 
 

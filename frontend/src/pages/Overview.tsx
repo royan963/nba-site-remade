@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ChartConfiguration } from 'chart.js';
 import { useApi } from '../api/hooks';
-import type { LeaderRow, LeagueTrend } from '../api/types';
+import type { LeaderRow, LeagueTrend, Meta } from '../api/types';
 import { ChartCanvas, ErrorNote, Loading, Panel, PlayButton, SeasonSlider, SectionHead, usePlayback } from '../components/ui';
 import { MONO, PALETTE, axis, baseOptions } from '../lib/chart';
 import { fmtInt, fmtNum, fmtPct } from '../lib/format';
@@ -30,12 +30,14 @@ const SB_STATS: { key: keyof LeagueTrend; label: string; unit?: string; pct?: bo
 export default function Overview() {
   const { data: era, error } = useApi<LeagueTrend[]>('/league/trends');
   const { data: top } = useApi<LeaderRow[]>('/leaders?stat=pts&limit=1');
+  const { data: meta } = useApi<Meta>('/meta');
   if (error) return <section className="view active"><ErrorNote error={error} /></section>;
   if (!era) return <section className="view active"><Loading /></section>;
-  return <OverviewContent era={era} topScorer={top?.[0]} />;
+  const live = meta?.live_season?.in_progress ? meta.live_season.season : null;
+  return <OverviewContent era={era} topScorer={top?.[0]} inProgress={live} />;
 }
 
-function OverviewContent({ era, topScorer }: { era: LeagueTrend[]; topScorer?: LeaderRow }) {
+function OverviewContent({ era, topScorer, inProgress }: { era: LeagueTrend[]; topScorer?: LeaderRow; inProgress: number | null }) {
   const first = era[0].season, latest = era[era.length - 1].season;
   const [season, setSeason] = useState(latest);
   const prevRef = useRef<LeagueTrend | null>(null);
@@ -49,18 +51,22 @@ function OverviewContent({ era, topScorer }: { era: LeagueTrend[]; topScorer?: L
   useEffect(() => { prevRef.current = row; });
 
   const ticker = useMemo(() => {
-    const withPace = era.filter(e => e.pace != null);
+    // Records count finished seasons only; a season still under way is shown beside them, labelled as in progress.
+    const done = era.filter(e => e.season !== inProgress);
+    const now = era.find(e => e.season === inProgress);
+    const withPace = done.filter(e => e.pace != null);
     const peak = withPace.reduce((a, b) => (b.pace! > a.pace! ? b : a));
     const low = withPace.reduce((a, b) => (b.pace! < a.pace! ? b : a));
-    const top3 = era.reduce((a, b) => ((b.x3p_ar || 0) > (a.x3p_ar || 0) ? b : a));
+    const top3 = done.reduce((a, b) => ((b.x3p_ar || 0) > (a.x3p_ar || 0) ? b : a));
+    const soFar = (v: string, beats: boolean) => (now && beats ? ` \u00b7 ${now.season} so far: ${v} (season in progress)` : '');
     return [
-      { label: 'Fastest season', value: fmtNum(peak.pace), sub: `pace \u00b7 ${peak.season}` },
-      { label: 'Slowest season', value: fmtNum(low.pace), sub: `pace \u00b7 ${low.season}` },
-      { label: 'Peak 3PT rate', value: fmtPct(top3.x3p_ar), sub: `of all shots \u00b7 ${top3.season}` },
+      { label: 'Fastest season', value: fmtNum(peak.pace), sub: `pace \u00b7 ${peak.season}${soFar(fmtNum(now?.pace), (now?.pace ?? 0) > peak.pace!)}` },
+      { label: 'Slowest season', value: fmtNum(low.pace), sub: `pace \u00b7 ${low.season}${soFar(fmtNum(now?.pace), now?.pace != null && now.pace < low.pace!)}` },
+      { label: 'Peak 3PT rate', value: fmtPct(top3.x3p_ar), sub: `of all shots \u00b7 ${top3.season}${soFar(fmtPct(now?.x3p_ar), now?.x3p_ar != null)}` },
       { label: 'All-time scorer', value: topScorer?.player ?? '\u2026', sub: topScorer ? `${fmtInt(topScorer.pts)} pts` : '' },
       { label: 'Seasons tracked', value: String(era.length), sub: `${first}\u2013${latest}` },
     ];
-  }, [era, topScorer, first, latest]);
+  }, [era, topScorer, first, latest, inProgress]);
 
   const chart = useMemo<ChartConfiguration>(() => ({
     type: 'line',

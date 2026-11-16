@@ -239,6 +239,38 @@ def update_career(season, st):
     return changed
 
 
+def snapshot(season: int, k: int, est_model: dict, base: dict):
+    """One past season as it stood after the median team had played k games, as replacement tables for that season
+    (player_seasons, player_advanced, team_geo, league_env rows; base holds the full tables as DataFrames).
+    Used to calibrate the predictors' mid-season win chances. Returns (tables, average team games played)."""
+    through = S.date_after_games(season, k)
+    teams, st, comb, allrows, lg = build(season, est_model, through)
+    ident = identities(season, set(allrows['player_id']), strict=False)
+    ps = pd.DataFrame(season_rows(allrows, ident, season), columns=base['player_seasons'].columns)
+    adv = pd.DataFrame(advanced_rows(st, comb, season), columns=base['player_advanced'].columns)
+    tg = base['team_geo'][base['team_geo']['season'] == season].copy()
+    t = teams.set_index('team')
+    tg['w'], tg['l'] = tg['abbr'].map(t['w']).astype(float), tg['abbr'].map(t['l']).astype(float)
+    for col in ('srs', 'o_rtg', 'd_rtg', 'pace', 'pts_per_game'):
+        tg[col] = tg['abbr'].map(t[col]).astype(float)
+    env = base['league_env'].copy()
+    mins = 240.0 * lg['team_games']
+    env.loc[env['season'] == season, 'pts36'] = lg['pts'] / mins * 36
+    env.loc[env['season'] == season, 'ts_pct'] = lg['pts'] / (2 * (lg['fga'] + 0.44 * lg['fta']))
+    return {'player_seasons': ps, 'player_advanced': adv, 'team_geo': tg, 'league_env': env}, float(teams['g'].mean())
+
+
+def era_row(season, teams):
+    """The season's row of data/era_trends.json (league averages of team numbers, as prep_data.py builds them)."""
+    t = teams
+    mean = lambda v: round(float(v.mean()), 3)
+    return {'season': season, 'pace': mean(t['pace']), 'o_rtg': mean(t['o_rtg']), 'd_rtg': mean(t['d_rtg']),
+            'x3p_ar': mean(t['x3pa'] / t['fga']), 'ts_percent': mean(t['pts_for'] / (2 * (t['fga'] + 0.44 * t['fta']))),
+            'pts_per_game': mean(t['pts_for'] / t['g']), 'x3pa_per_game': mean(t['x3pa'] / t['g']),
+            'x3p_percent': mean(t['x3p'] / t['x3pa']), 'fg_percent': mean(t['fg'] / t['fga']), 'ft_per_game': mean(t['ft'] / t['g']),
+            'orb_per_game': mean(t['orb'] / t['g']), 'ast_per_game': mean(t['ast'] / t['g']), 'num_teams': int(len(t))}
+
+
 def fingerprint(tg, season):
     """Identifies the team rows this script wrote, so a second run knows they aren't the main dataset's."""
     rows = sorted(json.dumps(r) for r in tg['rows'] if r[0] == season)
@@ -263,9 +295,10 @@ def main():
         official_games = prev['official_games']          # the rows on disk are this script's own, from an earlier run
     teams, st, comb, allrows, lg = build(season, model)
     box_games = float(teams['g'].sum()) / 2
+    in_progress = bool(teams['g'].mean() < 82 - 0.5)          # still under way: the pages label its numbers as such
     if box_games <= official_games and not args.force:
         print(f'{season}: the main dataset is up to date ({official_games:.0f} games, box scores {box_games:.0f}); keeping its numbers')
-        (DATA / 'live_season.json').write_text(json.dumps({'season': season, 'source': 'official', 'games': official_games}) + '\n')
+        (DATA / 'live_season.json').write_text(json.dumps({'season': season, 'source': 'official', 'games': official_games, 'in_progress': in_progress}) + '\n')
         return
     games = pd.read_csv(S.GAMES / f'games_{season}.csv.gz')
     through = str(games.loc[games['game_ref'].isin(S.load_box(season)[0]['game_ref']), 'date'].max())
@@ -309,7 +342,11 @@ def main():
     env['rows'] = [r for r in env['rows'] if r[0] != season] + [row]
     save('league_env', env)
 
-    info = {'season': season, 'source': 'box_scores', 'through': through, 'games': box_games, 'official_games': official_games,
+    era = json.loads((DATA / 'era_trends.json').read_text(encoding='utf-8'))
+    era = [r for r in era if r['season'] != season] + [era_row(season, teams)]
+    (DATA / 'era_trends.json').write_text(json.dumps(era, allow_nan=False), encoding='utf-8')
+
+    info = {'season': season, 'source': 'box_scores', 'in_progress': in_progress, 'through': through, 'games': box_games, 'official_games': official_games,
             'players': int(allrows['player_id'].nunique()), 'teams': int(len(teams)),
             'estimated': ['ws', 'ws_48', 'bpm', 'obpm', 'dbpm', 'vorp'],
             'estimate_accuracy': {k: {'mae_500_min': v['test_mae_500_min'], 'corr_500_min': v['test_corr_500_min']} for k, v in model['models'].items()},

@@ -84,6 +84,19 @@ def test_the_newest_season_comes_from_the_box_scores_when_they_are_ahead():
     assert all(r['g'] <= team_games.get(r['team'], 82) for r in rows)
 
 
+def test_league_trends_for_the_season_in_progress_come_from_the_box_scores():
+    f = ROOT / 'data' / 'live_season.json'
+    if not f.exists() or json.loads(f.read_text())['source'] != 'box_scores':
+        pytest.skip('the season in progress is not rebuilt from box scores')
+    if 'in_progress' not in json.loads(f.read_text()):
+        pytest.skip('data built before prep_season_live.py rebuilt the league trends')
+    season = json.loads(f.read_text())['season']
+    era = {r['season']: r for r in json.loads((ROOT / 'data' / 'era_trends.json').read_text())}
+    teams, _, _ = S.season_tables(season)
+    expected = float((teams['x3pa'] / teams['fga']).mean())          # league 3PT rate, the mean of the teams' rates
+    assert abs(era[season]['x3p_ar'] - expected) < 0.001 and era[season]['num_teams'] == 30
+
+
 def test_rookies_are_listed_once_after_the_rebuild(client):
     # provisional rookies (data/new_players.json) are also in the rebuilt season; the loader must not add them twice
     stubs = json.loads((ROOT / 'data' / 'new_players.json').read_text(encoding='utf8'))

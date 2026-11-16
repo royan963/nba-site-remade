@@ -1,0 +1,54 @@
+{
+ "seasons": [
+  2013,
+  2014,
+  2015,
+  2016,
+  2017,
+  2018,
+  2019,
+  2022,
+  2023,
+  2024
+ ],
+ "model_trained_through": 2012,
+ "c": 1.95,
+ "b": 0.35,
+ "by_games": [
+  {
+   "games": 8,
+   "leader_won": 0.0,
+   "winner_in_top3": 0.6,
+   "avg_leader_chance": 0.287,
+   "power": 0.86
+  },
+  {
+   "games": 15,
+   "leader_won": 0.4,
+   "winner_in_top3": 0.8,
+   "avg_leader_chance": 0.348,
+   "power": 1.08
+  },
+  {
+   "games": 25,
+   "leader_won": 0.6,
+   "winner_in_top3": 0.8,
+   "avg_leader_chance": 0.377,
+   "power": 1.29
+  },
+  {
+   "games": 41,
+   "leader_won": 0.4,
+   "winner_in_top3": 0.8,
+   "avg_leader_chance": 0.436,
+   "power": 1.53
+  },
+  {
+   "games": 60,
+   "leader_won": 0.4,
+   "winner_in_top3": 1.0,
+   "avg_leader_chance": 0.508,
+   "power": 1.75
+  }
+ ]
+}
