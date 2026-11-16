@@ -2,7 +2,7 @@
 # from the Dockerfile. In the Render dashboard: New -> Blueprint -> this repo.
 #
 # The stats need no database: the image builds its own SQLite database from
-# data/*.json, and every push to main (including the weekly data update)
+# data/*.json, and every push to main (including the daily data update)
 # rebuilds the image with fresh data.
 #
 # User accounts DO need one: the free plan resets the container's disk on

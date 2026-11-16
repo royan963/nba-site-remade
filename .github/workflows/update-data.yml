@@ -1,4 +1,4 @@
-# Weekly (and on-demand) data refresh. Downloads the latest stats and the
+# Daily (and on-demand) data refresh. Downloads the latest stats and the
 # Deo Cheng playoffs/game data from Kaggle, rebuilds everything, runs the
 # checks and smoke test, and commits only if something changed. Needs a repository secret named KAGGLE_API_TOKEN
 # (Settings -> Secrets and variables -> Actions), generated at
@@ -17,7 +17,7 @@ on:
         type: boolean
         default: false
   schedule:
-    - cron: '0 12 * * 1'      # Mondays 12:00 UTC
+    - cron: '0 12 * * *'      # every day 12:00 UTC (7-8am ET, after the previous night's games)
 
 permissions:
   contents: write

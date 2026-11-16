@@ -4,6 +4,7 @@ import type { MvpModel, MvpSeason } from '../../api/types';
 import { ErrorNote, HofBadge, Loading, NoData, Panel, SectionHead } from '../../components/ui';
 import { DASH, fmtNum, fmtSigned } from '../../lib/format';
 import { useQueryParam } from '../../lib/useQuery';
+import { RaceViewToggle, type RaceView } from './RaceViewToggle';
 
 const pct = (v: number | null | undefined, d = 0) => (v == null ? DASH : `${(v * 100).toFixed(d)}%`);
 const chance = (v: number) => (v >= 0.995 ? '>99%' : v > 0 && v < 0.005 ? '<1%' : pct(v));
@@ -11,22 +12,31 @@ const chance = (v: number) => (v >= 0.995 ? '>99%' : v > 0 && v < 0.005 ? '<1%' 
 export function MvpPage() {
   const { data: model, error } = useApi<MvpModel>('/models/mvp');
   const [seasonRaw, setSeason] = useQueryParam('season', '');
+  const [viewRaw, setView] = useQueryParam('view', '');
   if (error) return <ErrorNote error={error} />;
   if (!model) return <Loading />;
-  const current = model.preseason?.season ?? model.latest_season;     // the upcoming season once the last vote is in
+  // the season under way (live race), else the upcoming one once the last vote is in
+  const current = !model.latest_has_votes ? model.latest_season : model.preseason?.season ?? model.latest_season;
   const season = model.seasons.includes(parseInt(seasonRaw, 10)) ? parseInt(seasonRaw, 10) : current;
+  const view: RaceView = viewRaw === 'preseason' ? 'preseason' : 'live';
   return (
     <div id="mvp-page">
-      <Race model={model} season={season} onSeason={v => setSeason(v === current ? '' : String(v))} />
+      <Race model={model} season={season} view={view} onView={v => setView(v === 'live' ? '' : v)}
+        onSeason={v => { setView(''); setSeason(v === current ? '' : String(v)); }} />
       <ModelCard model={model} onSeason={v => setSeason(String(v))} />
     </div>
   );
 }
 
-function Race({ model, season, onSeason }: { model: MvpModel; season: number; onSeason: (s: number) => void }) {
-  const { data, error } = useApi<MvpSeason>(`/models/mvp/${season}`);
+function Race({ model, season, view, onView, onSeason }: {
+  model: MvpModel; season: number; view: RaceView; onView: (v: RaceView) => void; onSeason: (s: number) => void;
+}) {
+  const liveSeason = !model.latest_has_votes ? model.latest_season : null;
+  const both = season === liveSeason && season === model.preseason?.season;     // a season under way keeps its preseason race
+  const { data, error } = useApi<MvpSeason>(`/models/mvp/${season}${both && view === 'preseason' ? '?view=preseason' : ''}`);
   const prediction = data?.kind === 'prediction' || data?.kind === 'preseason';
   const pre = data?.kind === 'preseason' ? model.preseason : null;
+  const live = prediction && model.progress?.in_progress && model.progress.season === season ? model.progress : null;
   const winner = data?.candidates.find(c => c.winner);
   const top = data?.candidates[0];
   return (
@@ -35,16 +45,19 @@ function Race({ model, season, onSeason }: { model: MvpModel; season: number; on
         <div>
           <SectionHead title={`${season} MVP race${pre ? ' (preseason)' : ''}`} small>
             {pre
-              ? `A preseason prediction, before any ${season} games: a second model learned how each season’s stats and voting carry over to the next MVP vote. Tested on every season from ${pre.season - pre.metrics.seasons} on, it picked the eventual MVP ${pct(pre.metrics.top1)} of the time and had him in its top 3 ${pct(pre.metrics.top3)} of the time (last season’s top vote-getter: ${pct(pre.metrics.baseline_top1)}).`
+              ? `${both ? 'The prediction as it stood before the first game, kept for comparison with the live race' : `A preseason prediction, before any ${season} games`}: a second model learned how each season’s stats and voting carry over to the next MVP vote. Tested on every season from ${pre.season - pre.metrics.seasons} on, it picked the eventual MVP ${pct(pre.metrics.top1)} of the time and had him in its top 3 ${pct(pre.metrics.top3)} of the time (last season’s top vote-getter: ${pct(pre.metrics.baseline_top1)}).`
+              : prediction && live
+              ? `The race so far, updated daily: ${season} stats through about ${Math.round(live.team_games)} of ${live.season_games} games per team. Games, Win Shares and VORP are put on a full-season pace so a model trained on every season from 1956 to ${model.metrics.trained_through} can read them. Early in the season the order can swing a lot.`
               : prediction
               ? `A true prediction: ${season} voting isn\u2019t in the dataset yet. The model was trained on every season from 1956 to ${model.metrics.trained_through}.`
               : `Backtest: this season was predicted by a model trained on every other season, so it never saw this vote.`}
           </SectionHead>
         </div>
         <select id="mvp-season" value={season} onChange={e => onSeason(parseInt(e.target.value, 10))} aria-label="Season">
-          {model.seasons.map(s => <option key={s} value={s}>{s}{s === model.preseason?.season ? ' (preseason)' : s === model.latest_season && !model.latest_has_votes ? ' (prediction)' : ''}</option>)}
+          {model.seasons.map(s => <option key={s} value={s}>{s}{s === liveSeason ? ' (live)' : s === model.preseason?.season ? ' (preseason)' : ''}</option>)}
         </select>
       </div>
+      {both && <RaceViewToggle id="mvp-view" view={view} onView={onView} />}
       {error && <ErrorNote error={error} />}
       {!data && !error && <Loading />}
       {data && !prediction && winner && top && (
@@ -75,7 +88,7 @@ function Race({ model, season, onSeason }: { model: MvpModel; season: number; on
                   <td className="rank-cell">{c.rank}</td>
                   <td className="name-cell">
                     <Link to={`/players/${c.player_id}`}>{c.player}</Link>{c.hof && <HofBadge />}{c.winner && <span className="mvp-trophy" title="Won MVP">{'\u{1F3C6}'}</span>}
-                    {c.needs_exception && <div className="mvp-flag">{c.g} games: under {model.games_rule.min}, eligible only through an NBA exception</div>}
+                    {c.needs_exception && !live && <div className="mvp-flag">{c.g} games: under {model.games_rule.min}, eligible only through an NBA exception</div>}
                   </td>
                   <td>{c.team ?? DASH}{c.win_pct != null && <span className="similar-meta"> {pct(c.win_pct)}</span>}</td>
                   <td>{c.g ?? DASH}</td>
@@ -93,7 +106,12 @@ function Race({ model, season, onSeason }: { model: MvpModel; season: number; on
           </table>
         </div>
       )}
-      {data && !pre && model.games_rule_season <= season && (
+      {data && live && (
+        <p className="section-sub" id="mvp-live-note" style={{ marginTop: 12, marginBottom: 0 }}>
+          GP is games played so far. Players need {model.games_rule.min} games to win, so anyone who can no longer reach {model.games_rule.hard_min} is left out, and so is anyone who has missed more than half his team&rsquo;s games or plays under 20 minutes a night.
+        </p>
+      )}
+      {data && !pre && !live && model.games_rule_season <= season && (
         <p className="section-sub" style={{ marginTop: 12, marginBottom: 0 }}>
           From {model.games_rule_season} on, MVP candidates need {model.games_rule.min} games. Players under {model.games_rule.hard_min} are left out; the exceptions that count some shorter games aren&rsquo;t in this data.
         </p>

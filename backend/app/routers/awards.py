@@ -29,17 +29,20 @@ def mvp_model(response: Response, conn=Depends(get_conn)):
     return {
         **{k: info[k] for k in ('metrics', 'importances', 'latest_season', 'latest_has_votes', 'games_rule_season', 'games_rule')},
         'preseason': info.get('preseason'),
+        'progress': info.get('progress'),
         'misses': [{**m, 'predicted_name': names.get(m['predicted']), 'actual_name': names.get(m['actual'])} for m in info['misses']],
         'seasons': seasons,
     }
 
 
 @router.get('/models/mvp/{season}', summary="One season's MVP race: the model's ranking next to the real vote")
-def mvp_season(season: int, response: Response, conn=Depends(get_conn)):
+def mvp_season(season: int, response: Response, view: str | None = None, conn=Depends(get_conn)):
+    """view='preseason' picks the preseason race of a season that also has a live one."""
     response.headers['Cache-Control'] = 'public, max-age=3600'
     info = model_info(conn)
     pre = info.get('preseason')
-    preseason = bool(pre) and season == pre['season']
+    live = season == info['latest_season'] and not info['latest_has_votes']
+    preseason = bool(pre) and season == pre['season'] and (view == 'preseason' or not live)
     # a preseason race has no games yet: show the season it was predicted from
     stats_season = pre['base_season'] if preseason else season
     c, p = s.mvp_candidates, s.players
@@ -49,7 +52,7 @@ def mvp_season(season: int, response: Response, conn=Depends(get_conn)):
             .join(p, p.c.player_id == c.c.player_id)
             .join(ps, and_(ps.c.player_id == c.c.player_id, ps.c.season == stats_season))
             .outerjoin(adv, and_(adv.c.player_id == c.c.player_id, adv.c.season == stats_season))
-            .where(c.c.season == season)
+            .where(c.c.season == season, c.c.kind == ('preseason' if preseason else 'prediction' if live else 'backtest'))
             .order_by(c.c.rank, ps.c.combined.desc()))
     rows, seen = [], set()
     for r in conn.execute(stmt).mappings():
@@ -59,8 +62,7 @@ def mvp_season(season: int, response: Response, conn=Depends(get_conn)):
         rows.append({k: v for k, v in r.items() if k != 'row_team'})
     if not rows:
         raise HTTPException(404, f'No MVP data for {season}')
-    predicted = season == info['latest_season'] and not info['latest_has_votes']
-    kind = 'preseason' if preseason else 'prediction' if predicted else 'backtest'
+    kind = 'preseason' if preseason else 'prediction' if live else 'backtest'
     return {'season': season, 'kind': kind, 'stats_season': stats_season, 'candidates': rows}
 
 
@@ -85,16 +87,18 @@ def champion_model(response: Response, conn=Depends(get_conn)):
 
 
 @router.get('/models/champion/{season}', summary="Every team's title chances one season, next to what happened")
-def champion_season(season: int, response: Response, conn=Depends(get_conn)):
+def champion_season(season: int, response: Response, view: str | None = None, conn=Depends(get_conn)):
+    """view='preseason' picks the preseason odds of a season that also has live ones."""
     response.headers['Cache-Control'] = 'public, max-age=3600'
     info = champion_info(conn)
     cc, p = s.champion_candidates, s.players
+    kinds = {k for (k,) in conn.execute(select(cc.c.kind).where(cc.c.season == season).distinct())}
+    kind = 'preseason' if 'preseason' in kinds and (view == 'preseason' or len(kinds) == 1) else next(iter(kinds - {'preseason'}), None)
     rows = [dict(r) for r in conn.execute(
         select(cc, p.c.player.label('star')).outerjoin(p, p.c.player_id == cc.c.star_id)
-        .where(cc.c.season == season).order_by(cc.c.rank)).mappings()]
+        .where(cc.c.season == season, cc.c.kind == kind).order_by(cc.c.rank)).mappings()]
     if not rows:
         raise HTTPException(404, f'No champion predictions for {season}')
-    kind = rows[0]['kind']
     pre = info.get('preseason')
     return {'season': season, 'kind': kind, 'stats_season': pre['base_season'] if kind == 'preseason' else season, 'teams': rows}
 
@@ -191,19 +195,55 @@ def projection_info(conn) -> dict:
     return json.loads(raw)
 
 
+def season_so_far(conn, season: int, player_ids=None) -> dict:
+    """Each player's line in a season under way: {player_id: {g, mp, pts, trb, ast, ts_pct, team}} (combined row for traded players)."""
+    ps, adv = s.player_seasons, s.player_advanced
+    stmt = (select(ps.c.player_id, ps.c.team, ps.c.g, ps.c.mp, ps.c.pts, ps.c.trb, ps.c.ast, adv.c.ts_pct)
+            .outerjoin(adv, and_(adv.c.player_id == ps.c.player_id, adv.c.season == ps.c.season))
+            .where(ps.c.season == season).order_by(ps.c.combined.desc()))
+    if player_ids is not None:
+        stmt = stmt.where(ps.c.player_id.in_(player_ids))
+    out = {}
+    for r in conn.execute(stmt).mappings():
+        out.setdefault(r['player_id'], {**dict(r), 'season': season})
+    return out
+
+
+def vs_projection(proj: dict, now: dict | None) -> dict | None:
+    """How a season so far compares with its projection: the difference and whether it's inside the 60% range."""
+    if not now or not now.get('g'):
+        return None
+    out = {}
+    for k in ('pts', 'trb', 'ast', 'mp'):
+        if proj.get(k) is None or now.get(k) is None:
+            continue
+        out[k] = {'diff': round(now[k] - proj[k], 1),
+                  'in_range': None if proj.get(f'{k}_lo') is None else proj[f'{k}_lo'] <= now[k] <= proj[f'{k}_hi']}
+    return out
+
+
 @router.get('/players/{player_id}/projection', summary="A current player's next three seasons, with ranges and comparables")
 def player_projection(player_id: str, conn=Depends(get_conn)):
     info = projection_info(conn)
     pp, pc, p = s.player_projections, s.projection_comps, s.players
     rows = [dict(r) for r in conn.execute(select(pp).where(pp.c.player_id == player_id).order_by(pp.c.h)).mappings()]
+    live = info.get('in_progress')
     if not rows:
-        return {'player_id': player_id, 'projected': False, 'base_season': info['latest_season'], 'horizons': [], 'comps': []}
+        return {'player_id': player_id, 'projected': False, 'base_season': info['latest_season'], 'horizons': [], 'comps': [],
+                'in_progress': live, 'so_far': None}
     comps = [dict(r) for r in conn.execute(
         select(pc.c.rank, pc.c.comp_id, pc.c.comp_season, pc.c.similarity, p.c.player, p.c.hof)
         .join(p, p.c.player_id == pc.c.comp_id).where(pc.c.player_id == player_id).order_by(pc.c.rank)).mappings()]
     for r in rows:
         r.pop('player_id')
-    return {'player_id': player_id, 'projected': True, 'base_season': info['latest_season'], 'horizons': rows, 'comps': comps}
+    so_far = None
+    if live:
+        now = season_so_far(conn, live['season'], [player_id]).get(player_id)
+        proj = next((r for r in rows if r['season'] == live['season']), None)
+        if now and proj:
+            so_far = {**now, 'vs': vs_projection(proj, now)}
+    return {'player_id': player_id, 'projected': True, 'base_season': info['latest_season'], 'horizons': rows, 'comps': comps,
+            'in_progress': live, 'so_far': so_far}
 
 
 @router.get('/models/projections', summary='Projection model accuracy, plus the biggest projected risers and decliners')
@@ -224,8 +264,27 @@ def projections_model(response: Response, conn=Depends(get_conn)):
         seen.add(r['player_id'])
         rows.append({**{k: v for k, v in r.items() if k != 'combined'}, 'change': round(r['pts'] - r['now_pts'], 1)})
     eligible = [r for r in rows if (r['now_pts'] or 0) >= 8]          # meaningful roles only for risers/decliners
+    # the season under way: who is beating or trailing his projection so far (regulars only)
+    live, ahead, behind, tracked = info.get('in_progress'), [], [], None
+    if live:
+        now = season_so_far(conn, live['season'])
+        proj = {r['player_id']: dict(r) for r in conn.execute(
+            select(pp, p.c.player, p.c.hof).join(p, p.c.player_id == pp.c.player_id).where(pp.c.season == live['season'])).mappings()}
+        min_g = max(3, live['team_games'] / 2)
+        cmp = []
+        for pid, pr in proj.items():
+            n = now.get(pid)
+            if not n or (n['g'] or 0) < min_g or (n['mp'] or 0) < 15 or pr['pts'] is None or n['pts'] is None:
+                continue
+            cmp.append({'player_id': pid, 'player': pr['player'], 'hof': pr['hof'], 'team': n['team'], 'g': n['g'],
+                        'pts': n['pts'], 'proj_pts': pr['pts'], 'pts_lo': pr['pts_lo'], 'pts_hi': pr['pts_hi'],
+                        'diff': round(n['pts'] - pr['pts'], 1), 'in_range': pr['pts_lo'] <= n['pts'] <= pr['pts_hi']})
+        ahead = sorted(cmp, key=lambda r: -r['diff'])[:10]
+        behind = sorted(cmp, key=lambda r: r['diff'])[:10]
+        tracked = {'players': len(cmp), 'in_range': round(sum(r['in_range'] for r in cmp) / len(cmp), 3) if cmp else None, 'min_games': min_g}
     return {
         **info,
+        'ahead': ahead, 'behind': behind, 'tracked': tracked,
         'top_scorers': sorted(rows, key=lambda r: -r['pts'])[:12],
         'risers': sorted(eligible, key=lambda r: -r['change'])[:10],
         'decliners': sorted(eligible, key=lambda r: r['change'])[:10],

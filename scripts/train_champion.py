@@ -33,6 +33,7 @@ ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / 'data'
 MULTI = {'2TM', '3TM', '4TM', '5TM'}
 FIRST_SEASON = 1950
+SEASON_GAMES = 82
 
 SEASON_FEATURES = ['srs_z', 'win_pct_z', 'top3_vorp_z', 'top_bpm', 'prev_series_won']
 PRE_FEATURES = ['srs_z', 'top_bpm']
@@ -68,11 +69,17 @@ def build_features() -> pd.DataFrame:
     adv = frame('player_advanced')[['season', 'player_id', 'vorp', 'bpm', 'ws']]
     st = ps[~ps['team'].isin(MULTI)].merge(adv, on=['season', 'player_id'], how='left')
     st['minutes'] = st['mp'].fillna(0) * st['g'].fillna(0)
+    # A season in progress: scale the 1,000-minute bar for the best player's BPM to the games played so far
+    latest = int(t['season'].max())
+    team_gp = (t.loc[t['season'] == latest, 'w'] + t.loc[t['season'] == latest, 'l']).mean()
+    st['min_minutes'] = 1000.0
+    if not pt.loc[pt['season'] == latest, 'champion'].eq(True).any() and team_gp < SEASON_GAMES - 0.5:
+        st.loc[st['season'] == latest, 'min_minutes'] = 1000.0 * max(team_gp, 1) / SEASON_GAMES
     st = st.sort_values('vorp', ascending=False)
     grp = st.groupby(['season', 'team'])
     r = pd.DataFrame({
         'top3_vorp': grp['vorp'].apply(lambda s: s.sort_values(ascending=False).iloc[:3].sum(min_count=1)),
-        'top_bpm': st[st['minutes'] >= 1000].groupby(['season', 'team'])['bpm'].max(),
+        'top_bpm': st[st['minutes'] >= st['min_minutes']].groupby(['season', 'team'])['bpm'].max(),
         'star_id': grp['player_id'].first(),          # most VORP
     }).reset_index().rename(columns={'team': 'abbr'})
     t = t.merge(r, on=['season', 'abbr'], how='left')
@@ -171,22 +178,26 @@ def main():
         out_rows += rows(cur, latest, 'prediction')
 
     # ---- preseason: next season from this one -------------------------------------------------
+    # Kept all season: the odds as they stood before the first game, next to the live ones.
     pre = None
-    if has_champion:
+    decided = latest if has_champion else latest - 1
+    if decided >= FIRST_SEASON + 1:
         nxt = df[['franchise', 'season', 'champion']].rename(columns={'champion': 'next_champion'}).assign(season=lambda x: x['season'] - 1)
         p = df.merge(nxt, on=['franchise', 'season'], how='left').assign(target_season=lambda x: x['season'] + 1)
         p['next_champion'] = p['next_champion'].eq(True)
-        train = p[p['target_season'] <= latest]
+        train = p[p['target_season'] <= decided]
         _, pre_metrics, _, pre_final, pre_power, pre_weights = backtest(
             train.drop(columns=['champion']).rename(columns={'next_champion': 'champion'}), PRE_FEATURES, 'champion', 'target_season', pre_model)
-        cur = df[df['season'] == latest].copy()
+        cur = df[df['season'] == decided].copy()
         score = pd.Series(pre_final.predict_proba(cur[PRE_FEATURES])[:, 1], index=cur.index)
         cur['win_prob'] = share_probabilities(score, pre_power)
-        out_rows += rows(cur, latest + 1, 'preseason')
-        pre = {'season': latest + 1, 'base_season': latest, 'metrics': pre_metrics, 'weights': pre_weights}
+        out_rows += rows(cur, decided + 1, 'preseason')
+        pre = {'season': decided + 1, 'base_season': decided, 'metrics': pre_metrics, 'weights': pre_weights}
         print(f"preseason backtest: picks the champion in {pre_metrics['top1']:.0%} (top 3: {pre_metrics['top3']:.0%}); "
               f"last season's best SRS: {pre_metrics['baseline_top1']:.0%}")
-        print(f'{latest + 1} preseason:', ', '.join([f"{r['team']} {r['win_prob']:.0%}" for r in out_rows if r['season'] == latest + 1][:6]))
+        print(f'{decided + 1} preseason:', ', '.join([f"{r['team']} {r['win_prob']:.0%}" for r in out_rows if r['kind'] == 'preseason'][:6]))
+    if not has_champion:
+        print(f'{latest} live:', ', '.join([f"{r['team']} {r['win_prob']:.0%}" for r in out_rows if r['kind'] == 'prediction'][:6]))
 
     out = {
         'latest_season': latest, 'latest_has_champion': has_champion, 'metrics': metrics, 'weights': weights,

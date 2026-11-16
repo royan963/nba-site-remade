@@ -5,6 +5,7 @@ import { ErrorNote, Loading, NoData, Panel, SectionHead } from '../../components
 import { DASH, fmtNum, fmtSigned } from '../../lib/format';
 import { useQueryParam } from '../../lib/useQuery';
 import { slugify } from '../teams/geo';
+import { RaceViewToggle, type RaceView } from './RaceViewToggle';
 
 const pct = (v: number | null | undefined, d = 0) => (v == null ? DASH : `${(v * 100).toFixed(d)}%`);
 const chance = (v: number) => (v >= 0.995 ? '>99%' : v > 0 && v < 0.005 ? '<1%' : pct(v));
@@ -12,20 +13,28 @@ const chance = (v: number) => (v >= 0.995 ? '>99%' : v > 0 && v < 0.005 ? '<1%' 
 export function ChampionPage() {
   const { data: model, error } = useApi<ChampionModel>('/models/champion');
   const [seasonRaw, setSeason] = useQueryParam('season', '');
+  const [viewRaw, setView] = useQueryParam('view', '');
   if (error) return <ErrorNote error={error} />;
   if (!model) return <Loading />;
-  const current = model.preseason?.season ?? model.latest_season;
+  // the season under way (live odds), else the upcoming one once the last title is decided
+  const current = !model.latest_has_champion ? model.latest_season : model.preseason?.season ?? model.latest_season;
   const season = model.seasons.includes(parseInt(seasonRaw, 10)) ? parseInt(seasonRaw, 10) : current;
+  const view: RaceView = viewRaw === 'preseason' ? 'preseason' : 'live';
   return (
     <div id="champion-page">
-      <Race model={model} season={season} onSeason={v => setSeason(v === current ? '' : String(v))} />
+      <Race model={model} season={season} view={view} onView={v => setView(v === 'live' ? '' : v)}
+        onSeason={v => { setView(''); setSeason(v === current ? '' : String(v)); }} />
       <ModelCard model={model} onSeason={v => setSeason(String(v))} />
     </div>
   );
 }
 
-function Race({ model, season, onSeason }: { model: ChampionModel; season: number; onSeason: (s: number) => void }) {
-  const { data, error } = useApi<ChampionSeason>(`/models/champion/${season}`);
+function Race({ model, season, view, onView, onSeason }: {
+  model: ChampionModel; season: number; view: RaceView; onView: (v: RaceView) => void; onSeason: (s: number) => void;
+}) {
+  const liveSeason = !model.latest_has_champion ? model.latest_season : null;
+  const both = season === liveSeason && season === model.preseason?.season;     // a season under way keeps its preseason odds
+  const { data, error } = useApi<ChampionSeason>(`/models/champion/${season}${both && view === 'preseason' ? '?view=preseason' : ''}`);
   const pre = data?.kind === 'preseason' ? model.preseason : null;
   const decided = data?.kind === 'backtest';
   const champ = data?.teams.find(t => t.champion);
@@ -36,16 +45,17 @@ function Race({ model, season, onSeason }: { model: ChampionModel; season: numbe
         <div>
           <SectionHead title={`${season} title odds${pre ? ' (preseason)' : ''}`} small>
             {pre
-              ? `Before any ${season} games, from each team’s ${pre.base_season} season. Tested on every season from ${pre.season - pre.metrics.seasons} on, the favorite won the title ${pct(pre.metrics.top1)} of the time and the champion was in its top 3 ${pct(pre.metrics.top3)} of the time (last season’s best point differential: ${pct(pre.metrics.baseline_top1)}).`
+              ? `${both ? 'The odds as they stood before the first game, kept for comparison with the live odds: from' : `Before any ${season} games, from`} each team’s ${pre.base_season} season. Tested on every season from ${pre.season - pre.metrics.seasons} on, the favorite won the title ${pct(pre.metrics.top1)} of the time and the champion was in its top 3 ${pct(pre.metrics.top3)} of the time (last season’s best point differential: ${pct(pre.metrics.baseline_top1)}).`
               : decided
               ? 'Backtest: odds after the regular season, from a model trained on every other season, so it never saw how this one ended.'
-              : `A true prediction: the ${season} playoffs aren’t in the data yet. The model was trained on every season through ${model.metrics.trained_through}.`}
+              : `Live odds, updated daily from this season’s records, point differential and best players so far. The model was trained on every season through ${model.metrics.trained_through}; early in the season the order can swing a lot.`}
           </SectionHead>
         </div>
         <select id="champion-season" value={season} onChange={e => onSeason(parseInt(e.target.value, 10))} aria-label="Season">
-          {model.seasons.map(s => <option key={s} value={s}>{s}{s === model.preseason?.season ? ' (preseason)' : s === model.latest_season && !model.latest_has_champion ? ' (prediction)' : ''}</option>)}
+          {model.seasons.map(s => <option key={s} value={s}>{s}{s === liveSeason ? ' (live)' : s === model.preseason?.season ? ' (preseason)' : ''}</option>)}
         </select>
       </div>
+      {both && <RaceViewToggle id="champion-view" view={view} onView={onView} />}
       {error && <ErrorNote error={error} />}
       {!data && !error && <Loading />}
       {data && decided && champ && top && (
@@ -65,7 +75,7 @@ function Race({ model, season, onSeason }: { model: ChampionModel; season: numbe
           <table className="lb-table mvp-table">
             <thead>
               <tr>
-                <th>#</th><th>Team</th><th>W-L</th><th>SRS</th><th>Net rtg</th><th title="Most VORP on the roster">Top player</th><th title="Best Box Plus/Minus on the roster (1,000+ minutes), a model input">Best BPM</th>
+                <th>#</th><th>Team</th><th>W-L</th><th title="Simple Rating System: average point margin per game, adjusted for strength of schedule (0 = average team)">SRS</th><th title="Net rating: points scored minus allowed per 100 possessions">Net rtg</th><th title="Most VORP on the roster">Top player</th><th title="Best Box Plus/Minus on the roster (1,000+ minutes), a model input">Best BPM</th>
                 <th>Title chance</th>{decided && <th>What happened</th>}
               </tr>
             </thead>

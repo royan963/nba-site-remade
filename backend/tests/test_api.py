@@ -235,13 +235,31 @@ def test_mvp_current_race(client):
     assert len({c['player_id'] for c in r['candidates']}) == len(r['candidates'])   # traded players listed once
 
 
-def test_mvp_preseason_race(client):
-    # once the latest season's vote is in, the next season gets a preseason race
+def test_mvp_live_race(client):
+    # a season in progress: the race is predicted from stats so far, with the real games played shown
     m = get(client, '/api/v1/models/mvp')
-    assert m['latest_has_votes'] and m['preseason']['season'] == m['latest_season'] + 1
-    assert m['preseason']['metrics']['top1'] > m['preseason']['metrics']['baseline_top1']
-    r = get(client, f"/api/v1/models/mvp/{m['preseason']['season']}")
-    assert r['kind'] == 'preseason' and r['stats_season'] == m['latest_season']
+    if m['latest_has_votes']:
+        pytest.skip('no season in progress')
+    prog = m['progress']
+    assert prog['season'] == m['latest_season']
+    assert m['preseason']['season'] == m['latest_season']          # the preseason race is kept next to the live one
+    r = get(client, f"/api/v1/models/mvp/{m['latest_season']}")
+    assert r['kind'] == 'prediction' and len(r['candidates']) >= 10
+    if prog['in_progress']:
+        # games shown are real games played, never the projected full-season pace
+        assert all(c['g'] <= prog['team_games'] + 5 for c in r['candidates'])
+    probs = [c['win_prob'] for c in r['candidates']]
+    assert sum(probs) <= 1.0001 and probs[0] == max(probs)
+
+
+def test_mvp_preseason_race(client):
+    # the season after the last vote has a preseason race, before its first game and all through it
+    m = get(client, '/api/v1/models/mvp')
+    pre = m['preseason']
+    assert pre['season'] == m['metrics']['trained_through'] + 1 and pre['base_season'] == m['metrics']['trained_through']
+    assert pre['metrics']['top1'] > pre['metrics']['baseline_top1']
+    r = get(client, f"/api/v1/models/mvp/{pre['season']}?view=preseason")
+    assert r['kind'] == 'preseason' and r['stats_season'] == pre['base_season']
     assert r['candidates'][0]['pts'] is not None and r['candidates'][0]['actual_share'] is None
     probs = [c['win_prob'] for c in r['candidates']]
     assert sum(probs) <= 1.0001 and probs[0] == max(probs) and probs[0] < 0.75   # a year out, no lock
@@ -273,13 +291,27 @@ def test_champion_backtest_season(client):
 
 
 def test_champion_preseason(client):
+    # the season after the last title has preseason odds, kept all season next to the live ones
     m = get(client, '/api/v1/models/champion')
-    assert m['latest_has_champion'] and m['preseason']['season'] == m['latest_season'] + 1 and m['seasons'][0] == m['preseason']['season']
-    r = get(client, f"/api/v1/models/champion/{m['preseason']['season']}")
-    assert r['kind'] == 'preseason' and r['stats_season'] == m['latest_season']
+    pre = m['preseason']
+    decided = m['latest_season'] if m['latest_has_champion'] else m['latest_season'] - 1
+    assert pre['season'] == decided + 1 and pre['base_season'] == decided and m['seasons'][0] == pre['season']
+    r = get(client, f"/api/v1/models/champion/{pre['season']}?view=preseason")
+    assert r['kind'] == 'preseason' and r['stats_season'] == decided
     assert all(t['champion'] is None and t['result'] is None for t in r['teams'])
     assert abs(sum(t['win_prob'] for t in r['teams']) - 1) < 0.01 and r['teams'][0]['win_prob'] < 0.6
     get(client, '/api/v1/models/champion/1900', status=404)
+
+
+def test_champion_live_and_preseason_differ(client):
+    m = get(client, '/api/v1/models/champion')
+    if m['latest_has_champion']:
+        pytest.skip('no season in progress')
+    live = get(client, f"/api/v1/models/champion/{m['latest_season']}")
+    pre = get(client, f"/api/v1/models/champion/{m['latest_season']}?view=preseason")
+    assert live['kind'] == 'prediction' and live['stats_season'] == m['latest_season'] and pre['kind'] == 'preseason'
+    assert len(live['teams']) == len(pre['teams']) == 30
+    assert all(t['kind'] == 'prediction' for t in live['teams']) and all(t['kind'] == 'preseason' for t in pre['teams'])
 
 
 def test_mvp_unknown_season(client):
@@ -332,6 +364,24 @@ def test_player_projection(client):
     assert h1['pts_lo'] <= h1['pts'] <= h1['pts_hi'] and 0 <= h1['p_active'] <= 1
     assert r['comps'] and all(c['comp_id'] != 'wembavi01' for c in r['comps'])        # never compared with himself
     assert all(c['comp_season'] <= m['latest_season'] - 3 for c in r['comps'])          # comparables' futures are known
+
+
+def test_projection_vs_season_so_far(client):
+    # a season under way is projected from the last finished one, then checked against the real line so far
+    m = get(client, '/api/v1/models/projections')
+    live = m['in_progress']
+    if not live:
+        pytest.skip('no season in progress')
+    assert m['latest_season'] == live['season'] - 1 and m['tracked']['players'] >= 50
+    assert m['ahead'][0]['diff'] >= m['ahead'][-1]['diff'] and m['behind'][0]['diff'] <= m['behind'][-1]['diff']
+    for row in m['ahead'][:3] + m['behind'][:3]:
+        assert row['diff'] == round(row['pts'] - row['proj_pts'], 1) and row['g'] >= m['tracked']['min_games']
+    r = get(client, '/api/v1/players/wembavi01/projection')
+    now = r['so_far']
+    assert now['season'] == live['season'] and now['g'] >= 1
+    h1 = next(h for h in r['horizons'] if h['season'] == live['season'])
+    assert now['vs']['pts']['diff'] == round(now['pts'] - h1['pts'], 1)
+    assert now['vs']['pts']['in_range'] == (h1['pts_lo'] <= now['pts'] <= h1['pts_hi'])
 
 
 def test_retired_player_has_no_projection(client):

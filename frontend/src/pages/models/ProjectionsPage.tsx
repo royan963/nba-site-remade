@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { useApi } from '../../api/hooks';
-import type { ProjectionModel, ProjectionRow } from '../../api/types';
+import type { ProjectionCheckRow, ProjectionModel, ProjectionRow } from '../../api/types';
 import { ErrorNote, HofBadge, Loading, Panel, SectionHead } from '../../components/ui';
 import { fmtNum } from '../../lib/format';
 
@@ -34,6 +34,25 @@ export function ProjectionsPage() {
         <p className="section-sub" style={{ margin: '10px 0 0' }}>The advantage grows with distance: one season out, &ldquo;same as last season&rdquo; is hard to beat; three seasons out, knowing how similar careers aged matters most.</p>
       </Panel>
 
+      {data.in_progress && data.tracked && (
+        <>
+          <Panel id="proj-so-far">
+            <SectionHead title={`${data.in_progress.season} so far vs. projection`} small>
+              Each player&rsquo;s scoring this season against what the model projected from {data.latest_season}, about {Math.round(data.in_progress.team_games)} of {data.in_progress.season_games} games in (players with {Math.ceil(data.tracked.min_games)}+ games and 15+ minutes). Updated daily.
+            </SectionHead>
+            <div className="player-stat-row">
+              <div className="ps-cell"><div className="v">{data.tracked.players}</div><div className="l">players tracked</div></div>
+              <div className="ps-cell"><div className="v">{data.tracked.in_range == null ? '\u2014' : `${Math.round(data.tracked.in_range * 100)}%`}</div>
+                <div className="l">inside their projected range &middot; about 60% expected by season&rsquo;s end</div></div>
+            </div>
+          </Panel>
+          <div className="panel-row">
+            <CheckList id="proj-ahead" title="Most ahead of projection" rows={data.ahead ?? []} />
+            <CheckList id="proj-behind" title="Most behind projection" rows={data.behind ?? []} />
+          </div>
+        </>
+      )}
+
       <div className="panel-row">
         <ProjectionList id="proj-risers" title={`Biggest projected risers, ${next}`} rows={data.risers} change />
         <ProjectionList id="proj-decliners" title={`Biggest projected decliners, ${next}`} rows={data.decliners} change />
@@ -46,6 +65,30 @@ export function ProjectionsPage() {
         <p>Stats convert back to per-game numbers using {data.latest_season}&rsquo;s league environment. Projections assume he plays: injuries, trades, roles and retirement decisions aren&rsquo;t in the data.</p>
       </details>
     </div>
+  );
+}
+
+function CheckList({ id, title, rows }: { id: string; title: string; rows: ProjectionCheckRow[] }) {
+  return (
+    <Panel id={id}>
+      <SectionHead title={title} small />
+      <div className="table-scroll">
+        <table className="lb-table">
+          <thead><tr><th>Player</th><th>GP</th><th>Projected</th><th>So far</th><th>Gap</th></tr></thead>
+          <tbody>
+            {rows.map(r => (
+              <tr key={r.player_id}>
+                <td className="name-cell"><Link to={`/players/${r.player_id}`}>{r.player}</Link>{r.hof && <HofBadge />}<span className="similar-meta"> {r.team}</span></td>
+                <td>{r.g}</td>
+                <td>{fmtNum(r.proj_pts)}<span className="proj-range"> {fmtNum(r.pts_lo)}&ndash;{fmtNum(r.pts_hi)}</span></td>
+                <td>{fmtNum(r.pts)}</td>
+                <td className={r.diff >= 0 ? 'proj-up' : 'proj-down'}>{r.diff > 0 ? '+' : ''}{r.diff.toFixed(1)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Panel>
   );
 }
 
