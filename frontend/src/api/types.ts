@@ -389,3 +389,13 @@ export interface RecentGame {
   home: RecentSide; away: RecentSide; winner: 'home' | 'away' | null; top: { home: RecentTop | null; away: RecentTop | null };
 }
 export interface RecentGames { dates: number; latest: string | null; games: RecentGame[] }
+
+export interface NewsTeam { abbr: string; franchise: string; team_name: string }
+export interface NewsItem {
+  title: string; link: string; source: string; published: string | null; summary: string;
+  players: { player_id: string; player: string; team: string }[]; teams: NewsTeam[];
+}
+export interface NewsResponse {
+  updated_at: number; sources: { name: string; ok: boolean; items: number; error: string | null }[];
+  teams: NewsTeam[]; players_in_news: { player_id: string; player: string; team: string; stories: number }[]; items: NewsItem[];
+}

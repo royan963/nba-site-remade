@@ -60,6 +60,34 @@ with sync_playwright() as p:
     check(foot.locator('a[href*="kaggle.com/datasets"]').count() == 4, 'footer credits all four datasets')
     if live.get('source') == 'box_scores' and live.get('in_progress'):
         check('box scores' in page.locator('#footer-live-season').inner_text(), 'footer explains how the season in progress is built')
+    print('News')
+    page.wait_for_selector('#latest-news .news-item, #latest-news .no-data-note', timeout=30000)
+    if page.locator('#latest-news .news-item').count():
+        first = page.locator('#latest-news .news-item').first
+        check(first.locator('a.news-title').get_attribute('href').startswith('http') and first.locator('a.news-title').get_attribute('target') == '_blank',
+              'news: headlines open the publisher\u2019s story in a new tab')
+        check(page.locator('#latest-news .news-item').count() <= 12, 'news: the overview shows at most 12 headlines at first')
+        team = page.locator('#latest-news .news-chip.team').first
+        if team.count():
+            abbr = team.inner_text().strip()
+            page.select_option('#news-team', abbr); page.wait_for_selector('#news-filter-note', timeout=15000)
+            items = page.locator('#latest-news .news-item')
+            # cards show at most 3 team chips, so the filter itself is checked by the API tests; here: URL, note, results
+            check(f'news_team={abbr}' in page.url and items.count() >= 1 and page.locator('#news-filter-note').count() == 1,
+                  f'news: filtering by team ({abbr}) shows its stories')
+            page.click('#news-clear'); page.wait_for_timeout(500)
+            check('news_team' not in page.url, 'news: "Show all" clears the filter')
+    else:
+        print('  (no headlines reachable from here; news filter checks skipped)')
+    open_page(page, '/players/wembavi01')
+    page.wait_for_selector('#pc-news', timeout=30000)
+    check('in the news' in page.locator('#pc-news').inner_text().lower(), 'news: a current player has a news box')
+    open_page(page, '/players/jordami01'); page.wait_for_timeout(1500)
+    check(page.locator('#pc-news').count() == 0, 'news: a retired player has no news box')
+    open_page(page, '/teams/san-antonio-spurs')
+    page.wait_for_selector('#tc-news', timeout=30000)
+    check('san antonio spurs in the news' in page.locator('#tc-news').inner_text().lower(), 'news: a current team has a news box')
+    open_page(page, '/')
     print('Recent games')
     page.wait_for_selector('#recent-games .rg-card', timeout=15000)
     dates = page.locator('#recent-games .rg-day').evaluate_all('els => els.map(e => e.dataset.date)')
