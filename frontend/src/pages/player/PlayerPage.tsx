@@ -1,7 +1,8 @@
 import { Headshot } from './Headshot';
+import { NewsBox } from '../../components/News';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useApi } from '../../api/hooks';
-import type { PlayerDetail, PlayerSeason } from '../../api/types';
+import type { Meta, PlayerDetail, PlayerSeason } from '../../api/types';
 import { PlayerSearch } from '../../components/PlayerSearch';
 import { ErrorNote, HofBadge, Loading, NoData, Panel, SectionHead } from '../../components/ui';
 import { fmtInt, fmtNum, height } from '../../lib/format';
@@ -75,6 +76,7 @@ function PlayerCard({ player }: { player: PlayerDetail }) {
   const { data: seasons } = useApi<PlayerSeason[]>(`/players/${player.player_id}/seasons`);
   const { data: projection } = useApi<PlayerProjection>(`/players/${player.player_id}/projection`);
   const { data: playoffs } = useApi<PlayerPlayoffs>(`/players/${player.player_id}/playoffs`);
+  const { data: meta } = useApi<Meta>('/meta');                 // news only for players in the league now
   const d = player.draft;
   const draft = d
     ? `Drafted ${d.season} \u00b7 ${d.overall_pick ? `Round ${d.round}, Pick ${d.overall_pick}` : `Round ${d.round}`} \u00b7 ${d.tm}${d.college ? ` \u00b7 ${d.college}` : ''}`
@@ -112,6 +114,7 @@ function PlayerCard({ player }: { player: PlayerDetail }) {
           {stats.map(([l, v]) => <div className="ps-cell" key={l}><div className="v">{v}</div><div className="l">{l}</div></div>)}
         </div>
       </Panel>
+      {meta && player.last_season >= meta.latest_season && <NewsBox player={player.player_id} name={player.player} id="pc-news" />}
       <nav className="tabs player-tabs" id="pc-tabs" role="tablist" aria-label="Player sections">
         {TABS.filter(t => t.key !== 'projection' || projection?.projected).map(t => (
           <button key={t.key} type="button" role="tab" aria-selected={tab === t.key} data-tab={t.key}

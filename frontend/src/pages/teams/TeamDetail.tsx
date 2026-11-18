@@ -1,3 +1,4 @@
+import { NewsBox } from '../../components/News';
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { ChartConfiguration } from 'chart.js';
@@ -63,6 +64,7 @@ export function TeamDetail({ franchise }: { franchise: Franchise }) {
           <Link className="pill-btn" to={`/compare/teams/${franchise.slug}`}>Compare &rarr;</Link>
         </div>
       </div>
+      {latest.status === 'active' && <NewsBox team={latest.abbr} name={latest.team_name} id="tc-news" bare />}
       <Pills options={[...TEAM_STATS]} value={stat} onChange={v => setStat(v)} id="tc-stat-pills" />
       <ChartCanvas config={config} testId="team-chart" />
       <TeamPlayoffs franchise={franchise} />

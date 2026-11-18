@@ -5,6 +5,7 @@ import type { LeaderRow, LeagueTrend, Meta } from '../api/types';
 import { ChartCanvas, ErrorNote, Loading, Panel, PlayButton, SeasonSlider, SectionHead, usePlayback } from '../components/ui';
 import { MONO, PALETTE, axis, baseOptions } from '../lib/chart';
 import { fmtInt, fmtNum, fmtPct } from '../lib/format';
+import { LatestNews } from './LatestNews';
 import { RecentGames } from './RecentGames';
 
 function eraLabel(season: number) {
@@ -106,6 +107,7 @@ function OverviewContent({ era, topScorer, inProgress }: { era: LeagueTrend[]; t
       </div>
 
       <RecentGames />
+      <LatestNews />
 
       <div className="scoreboard">
         <div className="scoreboard-top">
