@@ -4834,16 +4834,12 @@
 "Washington Wizards": 1610612764
 },
 "stats": {
-"from_rookie_list": 7,
+"from_rookie_list": 5,
 "matched_by_name_and_seasons": 4795,
 "no_match": 352,
 "matched_by_short_first_name": 47,
 "tie_left_unmatched": 9,
-"provisional_duplicates": [
-"fallta02",
-"hollaro02"
-],
-"recent_players": 1690,
-"recent_matched": 1681
+"recent_players": 1683,
+"recent_matched": 1676
 }
 }
