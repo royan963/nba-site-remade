@@ -389,3 +389,8 @@ export interface RecentGame {
   home: RecentSide; away: RecentSide; winner: 'home' | 'away' | null; top: { home: RecentTop | null; away: RecentTop | null };
 }
 export interface RecentGames { dates: number; latest: string | null; games: RecentGame[] }
+
+export interface PlayerHeadshots {
+  player_id: string; nba_id: number | null; latest: string | null; credit: string;
+  seasons: { season: number; team: string; team_name: string; g: number | null; url: string }[];
+}

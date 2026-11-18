@@ -331,6 +331,9 @@ def main():
         get_eoin()
         if not run([sys.executable, 'scripts/prep_games_eoin.py', str(RAW_EOIN)]):
             restore('prep_games_eoin.py failed')
+        step('Matching players and teams to their NBA.com ids (for headshots)')
+        if not run([sys.executable, 'scripts/prep_nba_ids.py', str(RAW_EOIN)]):
+            restore('prep_nba_ids.py failed')
     # The main dataset can lag the season by a week or more; the box scores above are a day old. Rebuild the season in
     # progress from them (it keeps the main dataset's numbers once they've caught up), then train every model on the result.
     step('Rebuilding the season in progress from the box scores')
