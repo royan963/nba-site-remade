@@ -73,8 +73,10 @@ def build_rows():
         # the season rebuilt from box scores (scripts/prep_season_live.py) already has the rookies' rows
         have = {(r['player_id'], r['season']) for r in seasons}
         seasons += [r for r in extra['seasons'] if r['player_id'] not in official and (r['player_id'], r['season']) not in have]
+    nba = read('nba_ids') if (DATA / 'nba_ids.json').exists() else {'players': {}, 'teams': {}}
     for p in players:
         p['name_search'] = normalize_name(p['player'])
+        p['nba_id'] = nba['players'].get(p['player_id'])
     known = {p['player_id'] for p in players}
 
     for s in seasons:
@@ -332,6 +334,8 @@ def load(url=None, quiet=False):
             {'key': 'contracts', 'value': json.dumps({k: con[k] for k in ('season', 'as_of', 'rules')}) if con else ''},
             {'key': 'projection_model', 'value': json.dumps({k: v for k, v in proj.items() if k != 'players'}) if proj else ''},
             # how the newest season's stats were built: the main dataset, or the daily box scores (scripts/prep_season_live.py)
+            # NBA.com team id of each franchise, for season headshots (scripts/prep_nba_ids.py)
+            {'key': 'nba_team_ids', 'value': json.dumps((read('nba_ids') if (DATA / 'nba_ids.json').exists() else {}).get('teams', {}))},
             {'key': 'live_season', 'value': (DATA / 'live_season.json').read_text(encoding='utf-8') if (DATA / 'live_season.json').exists() else ''},
         ])
     if not quiet:

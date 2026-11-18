@@ -1,3 +1,4 @@
+import { Headshot } from './Headshot';
 import { NewsBox } from '../../components/News';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useApi } from '../../api/hooks';
@@ -89,6 +90,8 @@ function PlayerCard({ player }: { player: PlayerDetail }) {
     <div className="player-card show" id="player-card">
       <Panel>
         <div className="player-header">
+          <div className="player-id-block">
+          <Headshot playerId={player.player_id} name={player.player} />
           <div>
             <h1 className="player-name" id="pc-name">{player.player}{player.hof && <HofBadge label="Hall of Fame" />}</h1>
             <div className="player-meta" id="pc-meta">
@@ -100,6 +103,7 @@ function PlayerCard({ player }: { player: PlayerDetail }) {
                 <span className="years">{playoffs.titles.map(t => t.season).join(', ')}</span>
                 {(playoffs.finals_mvp_seasons ?? []).length > 0 && <span className="years">&middot; <b>{playoffs.finals_mvp_seasons.length}&times; Finals MVP</b> ({playoffs.finals_mvp_seasons.join(', ')})</span>}</div>
             )}
+          </div>
           </div>
           <div className="form-row">
             <FavoriteButton kind="player" refId={player.player_id} label={player.player} />

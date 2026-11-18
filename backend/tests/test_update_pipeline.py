@@ -47,3 +47,9 @@ def test_the_season_in_progress_is_rebuilt_from_box_scores_before_any_model_trai
     for model in ('train_archetypes.py', 'train_similarity.py', 'train_projections.py', 'train_mvp.py', 'train_champion.py'):
         assert i < at(f"'scripts/{model}'"), model
     assert 'restore(' in SRC[i:i + 200]
+
+
+def test_nba_ids_are_matched_after_the_new_dataset_step():
+    i = at("'scripts/prep_nba_ids.py'")
+    assert at("'scripts/prep_games_eoin.py'") < i < at("'build.py'")
+    assert 'restore(' in SRC[i:i + 200]

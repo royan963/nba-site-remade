@@ -3,7 +3,7 @@ similar players, and the career leaderboard."""
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from sqlalchemy import or_, select
+from sqlalchemy import and_, or_, select
 
 from .. import schema as s
 from ..db import get_conn
@@ -97,6 +97,34 @@ def get_player(player_id: str, conn=Depends(get_conn)):
     p['draft'] = {k: v for k, v in drafts[-1].items() if k not in ('id', 'player_id')} if drafts else None
     p['all_star_seasons'] = [r['season'] for r in by_player(conn, s.all_stars, player_id)]
     return p
+
+
+HEADSHOT = 'https://cdn.nba.com/headshots/nba/{folder}/260x190/{nba_id}.png'
+FIRST_SEASON_PHOTOS = 2015          # NBA.com keeps a photo per team and season from 2014-15 on
+
+
+@router.get('/players/{player_id}/headshots', summary="Official NBA.com headshots: the latest, and one per team and season since 2014-15")
+def headshots(player_id: str, response: Response, conn=Depends(get_conn)):
+    """Image addresses only; the browser loads them from NBA.com. A season photo NBA.com doesn't have fails to load,
+    and the page falls back to the latest one. Folders are named by the season's first year (2018 = 2018-19)."""
+    import json
+    response.headers['Cache-Control'] = 'public, max-age=3600'
+    p = player_or_404(conn, player_id)
+    nba_id = p.get('nba_id')
+    if not nba_id:
+        return {'player_id': player_id, 'nba_id': None, 'latest': None, 'seasons': [], 'credit': 'NBA.com'}
+    teams = json.loads(conn.execute(select(s.meta.c.value).where(s.meta.c.key == 'nba_team_ids')).scalar() or '{}')
+    ps, ts = s.player_seasons, s.team_seasons
+    rows = conn.execute(
+        select(ps.c.season, ps.c.team, ps.c.g, ts.c.franchise, ts.c.team_name)
+        .join(ts, and_(ts.c.abbr == ps.c.team, ts.c.season == ps.c.season))
+        .where(ps.c.player_id == player_id, ps.c.combined.is_(False), ps.c.season >= FIRST_SEASON_PHOTOS)
+        .order_by(ps.c.season, ps.c.g.desc())).mappings()
+    seasons = [{'season': r['season'], 'team': r['team'], 'team_name': r['team_name'], 'g': r['g'],
+                'url': HEADSHOT.format(folder=f"{teams[r['franchise']]}/{r['season'] - 1}", nba_id=nba_id)}
+               for r in rows if r['franchise'] in teams]
+    return {'player_id': player_id, 'nba_id': nba_id, 'latest': HEADSHOT.format(folder='latest', nba_id=nba_id),
+            'seasons': seasons, 'credit': 'NBA.com'}
 
 
 @router.get('/players/{player_id}/seasons', summary='Season-by-season stats')

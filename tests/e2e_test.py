@@ -60,6 +60,20 @@ with sync_playwright() as p:
     check(foot.locator('a[href*="kaggle.com/datasets"]').count() == 4, 'footer credits all four datasets')
     if live.get('source') == 'box_scores' and live.get('in_progress'):
         check('box scores' in page.locator('#footer-live-season').inner_text(), 'footer explains how the season in progress is built')
+    print('Headshots')
+    # NBA.com refuses headless browsers, so the photo itself may not load here; the fallback (initials) must then show
+    open_page(page, '/players/jamesle01')
+    page.wait_for_selector('#pc-headshot img, #pc-headshot .headshot-initials', timeout=20000)
+    opts = page.locator('#pc-headshot-season option').all_inner_texts()
+    check(any('2015-16' in o and 'CLE' in o for o in opts) and not any(o.startswith('2008-09') for o in opts),
+          'headshot: season picker lists his team photos from 2014-15 on')
+    page.select_option('#pc-headshot-season', '2016-CLE'); page.wait_for_timeout(2500)
+    img = page.locator('#pc-headshot img')
+    check((img.count() == 1 and '/1610612739/2015/' in (img.get_attribute('src') or '')) or img.count() == 0 and page.locator('#pc-headshot .headshot-initials').count() == 1
+          or (img.count() == 1 and '/latest/' in (img.get_attribute('src') or '')),
+          'headshot: picking 2015-16 asks NBA.com for that season\u2019s Cavaliers photo, with a fallback if it can\u2019t load')
+    check('NBA.com' in page.locator('#pc-headshot .headshot-credit').inner_text(), 'headshot: photo credit shown')
+    open_page(page, '/')
     print('News')
     page.wait_for_selector('#latest-news .news-item, #latest-news .no-data-note', timeout=30000)
     if page.locator('#latest-news .news-item').count():

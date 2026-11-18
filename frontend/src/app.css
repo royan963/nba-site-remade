@@ -297,6 +297,16 @@ a.rg-name:hover { text-decoration: underline; }
 .rg-top { display: flex; gap: 8px; align-items: baseline; }
 .rg-abbr { font-family: var(--mono, monospace); font-size: 10px; color: var(--chalk-dim, #a89f91); width: 30px; }
 
+/* ---------- Player headshot ---------- */
+.player-id-block { display: flex; gap: 18px; align-items: flex-start; min-width: 0; flex: 1 1 0; }
+.headshot { margin: 0; flex: 0 0 auto; width: 156px; display: flex; flex-direction: column; gap: 6px; }
+.headshot img, .headshot-initials, .headshot.placeholder { width: 156px; height: 114px; border-radius: 8px; background: var(--court-black, #161310); border: 1px solid var(--line); object-fit: cover; object-position: top; }
+.headshot.placeholder { display: block; }
+.headshot-initials { display: flex; align-items: center; justify-content: center; font-family: var(--font-display, inherit); font-size: 38px; color: var(--chalk-dim); }
+.headshot figcaption { display: flex; flex-direction: column; gap: 4px; }
+.headshot select { width: 100%; font-size: 11px; padding: 3px 4px; }
+.headshot-credit { font-family: var(--font-mono); font-size: 9.5px; color: var(--chalk-dim); letter-spacing: .03em; }
+@media (max-width: 560px) { .player-id-block { flex-direction: column; } .headshot, .headshot img, .headshot-initials, .headshot.placeholder { width: 130px; } .headshot img, .headshot-initials { height: 95px; } }
 /* ---------- News ---------- */
 .news-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 10px; }
 .news-list.compact { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }

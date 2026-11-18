@@ -35,6 +35,7 @@ players = Table(
     *_i('ht_in_in', 'wt', 'seasons_played', 'first_season', 'last_season',
         'g', 'pts', 'trb', 'ast', 'stl', 'blk', 'fg', 'fga', 'x3p', 'x3pa', 'ft', 'fta', 'all_star'),
     *_f('ppg', 'rpg', 'apg', 'ws', 'vorp'),
+    Column('nba_id', Integer),                 # NBA.com person id, for official headshots (scripts/prep_nba_ids.py)
 )
 
 # One row per player per team stint, plus a combined row ('2TM', '3TM', ...)

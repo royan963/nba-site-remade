@@ -390,6 +390,11 @@ export interface RecentGame {
 }
 export interface RecentGames { dates: number; latest: string | null; games: RecentGame[] }
 
+export interface PlayerHeadshots {
+  player_id: string; nba_id: number | null; latest: string | null; credit: string;
+  seasons: { season: number; team: string; team_name: string; g: number | null; url: string }[];
+}
+
 export interface NewsTeam { abbr: string; franchise: string; team_name: string }
 export interface NewsItem {
   title: string; link: string; source: string; published: string | null; summary: string;
