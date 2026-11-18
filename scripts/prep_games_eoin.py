@@ -190,11 +190,24 @@ def provisional_player(person, totals, player_id, team, season):
     return career, season_row
 
 
-def reconcile_stubs(stubs, official):
+def official_by_person(stub_ids=()):
+    """NBA.com person id -> official Basketball-Reference id, from data/nba_ids.json (scripts/prep_nba_ids.py, matched on
+    names and seasons played). This is how a veteran back after seasons away is recognised: only recent players are
+    searched by name, so without it he would get a new provisional id and appear twice. Provisional ids don't count."""
+    f = DATA / 'nba_ids.json'
+    if not f.exists():
+        return {}
+    players = json.loads(f.read_text(encoding='utf8')).get('players', {})
+    return {int(person): pid for pid, person in players.items() if pid not in set(stub_ids)}
+
+
+def reconcile_stubs(stubs, official, by_person=None, source=None):
     """Provisional players once the official table has caught up. Returns (stubs to keep, {provisional id: official id}).
-    A provisional player is dropped if the official table has that id, and remapped if a player who has played in the
-    newest season carries the same name under another id. An older namesake never counts."""
+    A provisional player is dropped if the official table has that id; remapped if his NBA.com id belongs to an official
+    player (a returning veteran) or if a player who has played in the newest season carries the same name under another id.
+    An older namesake never counts by name alone."""
     ids = {o['player_id'] for o in official}
+    by_person, source = by_person or {}, source or {}
     recent = {}
     for o in official:
         if (o.get('last_season') or 0) >= FIRST_NEW_SEASON:
@@ -202,6 +215,10 @@ def reconcile_stubs(stubs, official):
     keep, remap = [], {}
     for s in stubs:
         if s['player_id'] in ids:
+            continue
+        person = (source.get(s['player_id']) or {}).get('person_id')
+        if person is not None and by_person.get(int(person)) in ids:
+            remap[s['player_id']] = by_person[int(person)]
             continue
         hits = recent.get(name_key(s['player']), [])
         if len(hits) == 1:
@@ -355,7 +372,8 @@ def build(folder):
     official = [dict(zip(career['columns'], r)) for r in career['rows']]
     known = {o['player_id'] for o in official}
     old = read_stubs()
-    kept, remap = reconcile_stubs(old['players'], official)
+    by_person = official_by_person(old.get('source', {}))
+    kept, remap = reconcile_stubs(old['players'], official, by_person, old.get('source', {}))
     apply_remap(remap)
     if remap or len(kept) != len(old['players']):
         print(f'provisional players: {len(old["players"]) - len(kept) - len(remap)} replaced by official rows, {len(remap)} remapped to official ids')
@@ -396,6 +414,11 @@ def build(folder):
             p['player_id'] = [resolve_player(k, t, season, by_team, by_name, by_last) for k, t in zip(p['key'], p['team'])]
             if season >= FIRST_NEW_SEASON:
                 for person_id, grp in p[p['player_id'].isna()].groupby('personId'):
+                    vet = by_person.get(int(person_id))
+                    if vet in known:                           # a veteran back after seasons away: his own id, not a new one
+                        for k, team in set(zip(grp['key'], grp['team'])):
+                            by_team[(k, team, season)] = vet
+                        continue
                     first = grp.iloc[0]
                     info = people.loc[person_id].to_dict() if person_id in people.index else {'firstName': first['firstName'], 'lastName': first['lastName']}
                     info.setdefault('firstName', first['firstName'])

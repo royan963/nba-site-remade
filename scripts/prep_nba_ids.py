@@ -42,9 +42,12 @@ def match_players(folder: Path) -> tuple[dict, dict]:
     ps['season'] = season_of(ps['gameDateTimeEst'])
     ps['key'] = (ps['firstName'].fillna('') + ' ' + ps['lastName'].fillna('')).map(name_key)
     nba = ps.dropna(subset=['key', 'season']).groupby(['key', 'personId'])['season'].agg(lambda s: set(int(x) for x in s)).reset_index()
-    by_key = defaultdict(list)
+    by_key, by_last = defaultdict(list), defaultdict(list)
     for r in nba.itertuples(index=False):
         by_key[r.key].append((int(r.personId), r.season))
+        toks = r.key.split()
+        if len(toks) >= 2:
+            by_last[toks[-1]].append((toks[0], int(r.personId), r.season))
 
     ours = frame('player_seasons')[['player_id', 'player', 'season']]
     stubs = json.loads((DATA / 'new_players.json').read_text(encoding='utf-8')) if (DATA / 'new_players.json').exists() else {}
@@ -53,11 +56,33 @@ def match_players(folder: Path) -> tuple[dict, dict]:
     seasons = ours.groupby('player_id')['season'].agg(lambda s: set(int(x) for x in s))
     names = ours.sort_values('season').groupby('player_id')['player'].last()
     taken = Counter()
+    exact = {}
     for pid, mine in seasons.items():
         if pid in ids:
             continue
-        cands = [(len(mine & theirs), person) for person, theirs in by_key.get(name_key(names[pid]), [])]
+        c = sorted(((len(mine & theirs), person) for person, theirs in by_key.get(name_key(names[pid]) or '', [])), reverse=True)
+        c = [x for x in c if x[0] > 0]
+        if c and (len(c) == 1 or c[0][0] > c[1][0]):
+            exact[pid] = c[0][1]
+    claimed = set(exact.values())          # provisional ids (already in ids) never block an official player
+    for pid, mine in seasons.items():
+        if pid in ids:
+            continue
+        key = name_key(names[pid]) or ''
+        cands = [(len(mine & theirs), person) for person, theirs in by_key.get(key, [])]
         cands = sorted((c for c in cands if c[0] > 0), reverse=True)
+        if not cands and len(key.split()) >= 2:
+            # a short first name on one side (Basketball-Reference's "Ron Holland" is NBA.com's "Ronald Holland II"):
+            # same surname, one first name the start of the other (3+ letters), seasons overlapping, and only one such person
+            first, last = key.split()[0], key.split()[-1]
+            short = [(len(mine & theirs), person) for f, person, theirs in by_last.get(last, [])
+                     if min(len(f), len(first)) >= 3 and (f.startswith(first) or first.startswith(f)) and f != first
+                     and person not in claimed]
+            # most of his seasons must be shared: a partial overlap is usually a different player with a similar name
+            short = sorted((c for c in short if c[0] >= max(1, 0.6 * len(mine))), reverse=True)
+            if len(short) == 1 or (len(short) > 1 and short[0][0] > short[1][0] and len({p for _, p in short}) == len(short)):
+                cands = short[:1]
+                stats['matched_by_short_first_name'] += 1
         if not cands:
             stats['no_match'] += 1
             continue
