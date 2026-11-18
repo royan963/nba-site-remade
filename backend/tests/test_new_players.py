@@ -96,6 +96,25 @@ def test_an_older_namesake_does_not_absorb_a_rookie():
     assert [k['player_id'] for k in keep] == ['morrima02'] and remap == {}
 
 
+def test_a_returning_veteran_is_remapped_by_his_nba_id_not_his_name():
+    # Tacko Fall last played in 2021-22, so a name search of recent players misses him; his NBA.com id finds him.
+    # The same id rule ignores names entirely, so "Ronald Holland II" finds "Ron Holland".
+    official = OFFICIAL + [{'player_id': 'fallta01', 'player': 'Tacko Fall', 'first_season': 2020, 'last_season': 2022},
+                           {'player_id': 'hollaro01', 'player': 'Ron Holland', 'first_season': 2025, 'last_season': 2026}]
+    source = {'fallta02': {'person_id': 1629605}, 'hollaro02': {'person_id': 1641842}, 'mara01': {'person_id': 1643000}}
+    by_person = {1629605: 'fallta01', 1641842: 'hollaro01'}
+    keep, remap = ge.reconcile_stubs([stub('fallta02', 'Tacko Fall'), stub('hollaro02', 'Ronald Holland II'), stub('mara01', 'Aday Mara')],
+                                     official, by_person, source)
+    assert remap == {'fallta02': 'fallta01', 'hollaro02': 'hollaro01'} and [k['player_id'] for k in keep] == ['mara01']
+
+
+def test_nba_ids_never_point_a_person_at_a_provisional_player():
+    if not (ROOT / 'data' / 'nba_ids.json').exists():
+        pytest.skip('no data/nba_ids.json')
+    by_person = ge.official_by_person(stubs_file().get('source', {}))
+    assert by_person.get(1629605) == 'fallta01' and by_person.get(1641842) == 'hollaro01'
+
+
 # ---- the committed data and the loaded site ----------------------------------------------------------------------------------
 def stubs_file():
     return json.loads((ROOT / 'data' / 'new_players.json').read_text(encoding='utf8'))
@@ -111,6 +130,23 @@ def test_provisional_players_are_in_the_data_with_ids_that_do_not_collide_with_o
         pytest.skip('every rookie has an official id by now')
     assert len(set(ids)) == len(ids) and not (set(ids) & official)
     assert {x['player_id'] for x in s['seasons']} == set(ids)
+
+
+def test_no_provisional_player_is_someone_already_in_the_data():
+    # a provisional player whose NBA.com id belongs to an official one would appear twice (Tacko Fall, Ron Holland did)
+    s = stubs_file()
+    if not (ROOT / 'data' / 'nba_ids.json').exists():
+        pytest.skip('no data/nba_ids.json')
+    by_person = ge.official_by_person(s.get('source', {}))
+    twins = {pid: by_person[int(src['person_id'])] for pid, src in s.get('source', {}).items()
+             if src.get('person_id') and int(src['person_id']) in by_person}
+    assert not twins, f'provisional players who already have official ids: {twins}'
+
+
+def test_returning_veterans_appear_once(client):
+    for q, name in (('tacko', 'Tacko Fall'), ('ron holland', 'Ron Holland')):
+        hits = [h for h in client.get(f'/api/v1/players?q={q}').json() if h['player'].startswith(name.split()[0][:3]) and name.split()[-1] in h['player']]
+        assert len(hits) == 1, (q, hits)
 
 
 def rookie_id(client):

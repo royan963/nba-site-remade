@@ -23,6 +23,8 @@ def test_known_players_and_franchises_get_their_nba_ids():
     p, t = d['players'], d['teams']
     assert p['jamesle01'] == 2544 and p['wembavi01'] == 1641705 and p['leonaka01'] == 202695 and p['jordami01'] == 893
     assert p['paytoga01'] == 56 and p['paytoga02'] == 1627780            # father and son kept apart
+    assert p['hollaro01'] == 1641842                                     # "Ron" here, "Ronald ... II" at NBA.com
+    assert p['robincl02'] == 361 and p.get('robincl01') != 361          # a short first name never takes an exact match's person
     assert len(t) == 30 and len(set(t.values())) == 30
     assert t['San Antonio Spurs'] == 1610612759 and t['Brooklyn Nets'] == 1610612751   # the Nets keep New Jersey's id
     assert len(set(p.values())) == len(p)                                # one NBA person is never two of our players
