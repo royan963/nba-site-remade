@@ -2,10 +2,10 @@
  "season": 2027,
  "source": "box_scores",
  "in_progress": true,
- "through": "2026-11-22",
- "games": 245.0,
+ "through": "2026-11-23",
+ "games": 255.0,
  "official_games": 88.0,
- "players": 473,
+ "players": 480,
  "teams": 30,
  "estimated": [
   "ws",
@@ -30,5 +30,5 @@
   }
  },
  "estimate_tested_on": 2024,
- "fingerprint": "7d6b96986183e14eb29c2eb7a12fe1f3c58a2a20"
+ "fingerprint": "347325242b53c2bb12a24c7feee1dcc525928894"
 }

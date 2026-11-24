@@ -33,6 +33,7 @@
 "agerma01": 200772,
 "aguirma01": 76016,
 "ahearbl01": 201336,
+"aidoojo01": 1643265,
 "aingeda01": 76017,
 "ajincal01": 201582,
 "akinhe01": 76018,
@@ -4834,7 +4835,7 @@
 "Washington Wizards": 1610612764
 },
 "stats": {
-"from_rookie_list": 5,
+"from_rookie_list": 6,
 "matched_by_name_and_seasons": 4795,
 "no_match": 352,
 "matched_by_short_first_name": 47,
