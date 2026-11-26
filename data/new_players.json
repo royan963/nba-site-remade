@@ -1,5 +1,5 @@
 {
- "as_of": "2026-11-24",
+ "as_of": "2026-11-25",
  "players": [
   {
    "player_id": "carrca01",
@@ -174,6 +174,35 @@
    "ws": null,
    "vorp": null,
    "all_star": 0
+  },
+  {
+   "player_id": "nickety01",
+   "player": "Tyler Nickel",
+   "pos": "F",
+   "hof": false,
+   "ht_in_in": 79,
+   "wt": 220,
+   "seasons_played": 1,
+   "first_season": 2027,
+   "last_season": 2027,
+   "g": 1,
+   "pts": 5,
+   "trb": 0,
+   "ast": 0,
+   "stl": 0,
+   "blk": 0,
+   "fg": 2,
+   "fga": 3,
+   "x3p": 1,
+   "x3pa": 2,
+   "ft": 0,
+   "fta": 0,
+   "ppg": 5.0,
+   "rpg": 0.0,
+   "apg": 0.0,
+   "ws": null,
+   "vorp": null,
+   "all_star": 0
   }
  ],
  "seasons": [
@@ -302,6 +331,27 @@
    "ft_pct": 1.0,
    "x3pa": 1.0,
    "fta": 0.7
+  },
+  {
+   "season": 2027,
+   "player_id": "nickety01",
+   "player": "Tyler Nickel",
+   "age": 23,
+   "team": "NYK",
+   "pos": "F",
+   "g": 1,
+   "gs": 0,
+   "mp": 8.6,
+   "pts": 5.0,
+   "trb": 0.0,
+   "ast": 0.0,
+   "stl": 0.0,
+   "blk": 0.0,
+   "fg_pct": 0.6667,
+   "x3p_pct": 0.5,
+   "ft_pct": null,
+   "x3pa": 2.0,
+   "fta": 0.0
   }
  ],
  "source": {
@@ -328,6 +378,10 @@
   "donaltr01": {
    "person_id": 1643621,
    "team": "MIA"
+  },
+  "nickety01": {
+   "person_id": 1643589,
+   "team": "NYK"
   }
  }
 }
